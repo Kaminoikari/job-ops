@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.job-ops.daily</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/charles/job-ops/.venv/bin/python</string>
+    <string>/Users/charles/job-ops/scripts/run-daily.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/charles/job-ops</string>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>7</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/charles/job-ops/data/logs/daily.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/charles/job-ops/data/logs/daily.err.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>GMAIL_USER</key>
+    <string>YOUR_GMAIL@gmail.com</string>
+    <key>GMAIL_APP_PASSWORD</key>
+    <string>YOUR_16_CHAR_APP_PASSWORD</string>
+    <key>NOTIFY_EMAIL_TO</key>
+    <string>YOUR_RECIPIENT@gmail.com</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>KeepAlive</key>
+  <false/>
+</dict>
+</plist>

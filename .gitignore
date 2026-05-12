@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.env
+config/search.yml
+data/scan-history.tsv
+data/last-scan.json
+data/logs/*.log
+data/logs/sample-detail.json
+reports/daily/*.md
+reports/daily/*.html
+.DS_Store

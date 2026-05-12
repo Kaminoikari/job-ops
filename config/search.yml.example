@@ -1,0 +1,39 @@
+# 104 搜尋條件
+keywords:
+  - 產品經理
+  - Product Manager
+  - 資深產品經理
+  - Product Builder
+
+areas:
+  - 台北市
+  - 新北市
+  - 新竹市
+  - 海外地區          # 含中國、日本、東南亞、北美、歐洲等所有海外職缺
+
+# 每組 keyword 最多翻幾頁（每頁約 20 筆）
+# 第一次撈歷史可以拉高到 50；日常運作 5 通常足夠
+max_pages_per_keyword: 5
+
+# 只保留 appearDate >= 此日期的職缺；YYYY-MM-DD
+# 第一次 bootstrap 撈歷史時設定（例如 "2026-04-01"），日常運作可註解掉或設為 null
+# 翻頁時若整頁都早於此日期會 early-stop 加速
+from_date: null
+
+# 過濾條件
+filters:
+  # 月薪低於此值剔除；單位：新台幣
+  min_salary_monthly: 60000
+
+  # 「面議」/「待遇面議」職缺一律保留（不被 min_salary_monthly 剔除）
+  include_negotiable_salary: true
+
+  # 職位名稱包含這些字詞 → 排除
+  exclude_keywords:
+    - 實習
+    - 兼職
+    - 工讀
+    - 派遣
+
+  # 公司名稱包含這些字詞 → 排除
+  exclude_companies: []
