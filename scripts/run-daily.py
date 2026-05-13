@@ -41,6 +41,7 @@ from job_ops.history import (
 )
 from job_ops.report import build_markdown, build_subject, render_html
 from job_ops.scraper_104 import scrape_all
+from job_ops.tracker import TRACKER_PATH, load as load_tracker
 
 
 CONFIG_PATH = ROOT / "config" / "search.yml"
@@ -158,7 +159,10 @@ def main() -> int:
         _cache_last_scan(today_jobs, scan)
 
     log.info("=== Phase 4: 產出報告 ===")
-    md = build_markdown(scan, today, full=args.full)
+    evaluations = {ev.url: ev for ev in load_tracker(TRACKER_PATH)}
+    if evaluations:
+        log.info("載入 tracker：%d 筆評估記錄", len(evaluations))
+    md = build_markdown(scan, today, full=args.full, evaluations=evaluations)
     html = render_html(md, today)
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     md_path = REPORT_DIR / f"{today}.md"

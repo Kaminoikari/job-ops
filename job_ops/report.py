@@ -7,6 +7,7 @@ from collections import defaultdict
 import markdown as md_lib
 
 from .history import Record, ScanResult
+from .tracker import Evaluation
 
 
 # ---------- Markdown 產生 ----------
@@ -25,7 +26,27 @@ def _trim(s: str, n: int = 80) -> str:
     return s
 
 
-def _job_row(j: dict) -> str:
+def _score_emoji(score: float) -> str:
+    if score >= 4.0:
+        return "🟢"
+    if score >= 3.5:
+        return "🟡"
+    if score >= 3.0:
+        return "🟠"
+    return "🔴"
+
+
+def _fmt_score(url: str, evaluations: dict[str, Evaluation] | None) -> str:
+    """回傳評估分數欄位（含 emoji + 分數），未評估顯示 —。"""
+    if not evaluations:
+        return "—"
+    ev = evaluations.get(url)
+    if ev is None or ev.global_score <= 0:
+        return "—"
+    return f"{_score_emoji(ev.global_score)} {ev.global_score:.1f}"
+
+
+def _job_row(j: dict, evaluations: dict[str, Evaluation] | None = None) -> str:
     salary = _fmt_salary(j.get("salary_min"))
     company = _trim(j.get("company", "—"), 30)
     title = _trim(j.get("title", "—"), 50)
@@ -33,33 +54,47 @@ def _job_row(j: dict) -> str:
     loc = _trim(j.get("location", "") or "—", 20)
     url = j.get("url", "")
     link = f"[104]({url})" if url else "—"
+    score = _fmt_score(url, evaluations)
     notes = j.get("notes") or {}
     activeness = _trim(str(notes.get("activeness", "") or "—"), 20)
     reply = _trim(str(notes.get("reply_info", "") or "—"), 18)
     resume = _trim(str(notes.get("resume_info", "") or "—"), 18)
     return (
-        f"| {salary} | {company} | {industry} | {title} | {loc} | {link} | "
+        f"| {score} | {salary} | {company} | {industry} | {title} | {loc} | {link} | "
         f"{activeness} | {reply} | {resume} |"
     )
 
 
 def _job_row_header() -> list[str]:
     return [
-        "| 月薪下限 | 公司 | 產業 | 職位 | 地區 | 連結 | 徵才積極度 | 回覆求職者 | 聯絡應徵者 |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| 評分 | 月薪下限 | 公司 | 產業 | 職位 | 地區 | 連結 | 徵才積極度 | 回覆求職者 | 聯絡應徵者 |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
 
 
-def build_markdown(scan: ScanResult, today: str, *, full: bool = False) -> str:
+def build_markdown(
+    scan: ScanResult,
+    today: str,
+    *,
+    full: bool = False,
+    evaluations: dict[str, Evaluation] | None = None,
+) -> str:
     """生成日報 markdown。
 
     full=False (預設、日常模式): 只顯示變化（新上架／更新／薪資變動／下架）
     full=True: 加上「全部活躍職缺 — 多排序視角」與「詳細資訊（今日新上架）」附錄
+    evaluations: { url → Evaluation } map（從 tracker.tsv 載入）；非 None 時表格會加入「評分」欄
     """
     lines: list[str] = []
     new_paid = [j for j in scan.new_items if j.get("salary_min") is not None]
     new_negotiable = [j for j in scan.new_items if j.get("salary_min") is None]
     new_paid.sort(key=lambda j: j.get("salary_min") or 0, reverse=True)
+
+    active_jobs = scan.new_items + scan.refreshed + scan.still_listed
+    evaluated_active = (
+        sum(1 for j in active_jobs if evaluations and j.get("url") in evaluations)
+        if evaluations else 0
+    )
 
     # 1. 摘要
     lines.append(f"# 📋 104 職缺日報 — {today}")
@@ -72,6 +107,11 @@ def build_markdown(scan: ScanResult, today: str, *, full: bool = False) -> str:
     lines.append(f"- 💰 薪資變動：**{len(scan.salary_changed)}** 筆")
     lines.append(f"- 📌 仍在架（無變動）：{len(scan.still_listed)} 筆")
     lines.append(f"- 💀 已下架：{len(scan.expired)} 筆")
+    if evaluations is not None:
+        lines.append(
+            f"- 🎯 已評估：**{evaluated_active} / {len(active_jobs)}** 筆"
+            f"（用 `/eval {{URL}}` 對未評估職缺觸發評估）"
+        )
     lines.append("")
 
     # 2. 今日新上架
@@ -83,11 +123,11 @@ def build_markdown(scan: ScanResult, today: str, *, full: bool = False) -> str:
     else:
         lines.extend(_job_row_header())
         for j in new_paid:
-            lines.append(_job_row(j))
+            lines.append(_job_row(j, evaluations))
         if new_negotiable:
-            lines.append("| **— 以下為面議 —** | | | | | | | | |")
+            lines.append("| **— 以下為面議 —** | | | | | | | | | |")
             for j in new_negotiable:
-                lines.append(_job_row(j))
+                lines.append(_job_row(j, evaluations))
         lines.append("")
 
     # 3. 104 更新日期變動
@@ -97,11 +137,12 @@ def build_markdown(scan: ScanResult, today: str, *, full: bool = False) -> str:
         lines.append("> 這些職缺已上架一段時間，但公司今天更新了 104 上的職缺日期")
         lines.append("")
         refreshed_sorted = sorted(scan.refreshed, key=lambda j: j.get("104_update_date", ""), reverse=True)
-        lines.append("| 更新日 | 月薪下限 | 公司 | 產業 | 職位 | 地區 | 連結 |")
-        lines.append("|---|---|---|---|---|---|---|")
+        lines.append("| 評分 | 更新日 | 月薪下限 | 公司 | 產業 | 職位 | 地區 | 連結 |")
+        lines.append("|---|---|---|---|---|---|---|---|")
         for j in refreshed_sorted:
             lines.append(
-                f"| {j.get('104_update_date', '—')} | {_fmt_salary(j.get('salary_min'))} | "
+                f"| {_fmt_score(j.get('url', ''), evaluations)} | "
+                f"{j.get('104_update_date', '—')} | {_fmt_salary(j.get('salary_min'))} | "
                 f"{_trim(j.get('company', '—'), 30)} | {_trim(j.get('industry', '') or '—', 20)} | "
                 f"{_trim(j.get('title', '—'), 50)} | "
                 f"{_trim(j.get('location', '') or '—', 20)} | [104]({j.get('url', '')}) |"
@@ -112,8 +153,8 @@ def build_markdown(scan: ScanResult, today: str, *, full: bool = False) -> str:
     if scan.salary_changed:
         lines.append(f"## 💰 薪資變動警示（{len(scan.salary_changed)} 筆）")
         lines.append("")
-        lines.append("| 變化 | 原薪資 | 新薪資 | 公司 | 職位 | 連結 |")
-        lines.append("|---|---|---|---|---|---|")
+        lines.append("| 評分 | 變化 | 原薪資 | 新薪資 | 公司 | 職位 | 連結 |")
+        lines.append("|---|---|---|---|---|---|---|")
         for j in scan.salary_changed:
             prev = j.get("prev_salary_min")
             cur = j.get("salary_min")
@@ -124,7 +165,8 @@ def build_markdown(scan: ScanResult, today: str, *, full: bool = False) -> str:
             else:
                 arrow = f"⬇️ {cur - prev:,}"
             lines.append(
-                f"| {arrow} | {_fmt_salary(prev)} | {_fmt_salary(cur)} | "
+                f"| {_fmt_score(j.get('url', ''), evaluations)} | "
+                f"{arrow} | {_fmt_salary(prev)} | {_fmt_salary(cur)} | "
                 f"{_trim(j.get('company', '—'), 30)} | {_trim(j.get('title', '—'), 50)} | "
                 f"[104]({j.get('url', '')}) |"
             )
@@ -141,7 +183,6 @@ def build_markdown(scan: ScanResult, today: str, *, full: bool = False) -> str:
         lines.append("")
 
     # 6. 多排序視角（僅 --full 模式）
-    active_jobs = scan.new_items + scan.refreshed + scan.still_listed
     if full and active_jobs:
         lines.append("---")
         lines.append("")
@@ -154,8 +195,8 @@ def build_markdown(scan: ScanResult, today: str, *, full: bool = False) -> str:
             by_company[j.get("company", "—")].append(j)
         lines.append(f"### 🏢 依公司分組（{len(by_company)} 家）")
         lines.append("")
-        lines.append("| 公司 | 筆數 | 產業 | 月薪下限 | 職位 | 地區 | 104 更新日 | 連結 | 徵才積極度 |")
-        lines.append("|---|---|---|---|---|---|---|---|---|")
+        lines.append("| 公司 | 筆數 | 評分 | 產業 | 月薪下限 | 職位 | 地區 | 104 更新日 | 連結 | 徵才積極度 |")
+        lines.append("|---|---|---|---|---|---|---|---|---|---|")
         # 公司排序：依該公司職缺數降序，同筆數則按字母
         sorted_companies = sorted(by_company.items(), key=lambda x: (-len(x[1]), x[0]))
         for company, jobs in sorted_companies:
@@ -165,6 +206,7 @@ def build_markdown(scan: ScanResult, today: str, *, full: bool = False) -> str:
                 lines.append(
                     f"| {_trim(company, 30) if i == 0 else ''} | "
                     f"{len(jobs) if i == 0 else ''} | "
+                    f"{_fmt_score(j.get('url', ''), evaluations)} | "
                     f"{_trim(j.get('industry', '') or '—', 20)} | "
                     f"{_fmt_salary(j.get('salary_min'))} | "
                     f"{_trim(j.get('title', '—'), 50)} | "
@@ -184,8 +226,8 @@ def build_markdown(scan: ScanResult, today: str, *, full: bool = False) -> str:
             by_loc[key].append(j)
         lines.append(f"### 🗺 依地區分組（{len(by_loc)} 區）")
         lines.append("")
-        lines.append("| 地區 | 筆數 | 月薪下限 | 公司 | 產業 | 職位 | 104 更新日 | 連結 | 徵才積極度 |")
-        lines.append("|---|---|---|---|---|---|---|---|---|")
+        lines.append("| 地區 | 筆數 | 評分 | 月薪下限 | 公司 | 產業 | 職位 | 104 更新日 | 連結 | 徵才積極度 |")
+        lines.append("|---|---|---|---|---|---|---|---|---|---|")
         for loc, jobs in sorted(by_loc.items(), key=lambda x: -len(x[1])):
             jobs_sorted = sorted(jobs, key=lambda j: j.get("salary_min") or 0, reverse=True)
             for i, j in enumerate(jobs_sorted):
@@ -193,6 +235,7 @@ def build_markdown(scan: ScanResult, today: str, *, full: bool = False) -> str:
                 lines.append(
                     f"| {loc if i == 0 else ''} | "
                     f"{len(jobs) if i == 0 else ''} | "
+                    f"{_fmt_score(j.get('url', ''), evaluations)} | "
                     f"{_fmt_salary(j.get('salary_min'))} | "
                     f"{_trim(j.get('company', '—'), 30)} | "
                     f"{_trim(j.get('industry', '') or '—', 20)} | "
@@ -207,12 +250,13 @@ def build_markdown(scan: ScanResult, today: str, *, full: bool = False) -> str:
         lines.append("### 🕒 依 104 更新日降序（最近活躍）")
         lines.append("")
         by_update = sorted(active_jobs, key=lambda j: j.get("104_update_date", ""), reverse=True)
-        lines.append("| 104 更新日 | 月薪下限 | 公司 | 產業 | 職位 | 地區 | 連結 | 徵才積極度 |")
-        lines.append("|---|---|---|---|---|---|---|---|")
+        lines.append("| 評分 | 104 更新日 | 月薪下限 | 公司 | 產業 | 職位 | 地區 | 連結 | 徵才積極度 |")
+        lines.append("|---|---|---|---|---|---|---|---|---|")
         for j in by_update:
             notes = j.get("notes") or {}
             lines.append(
-                f"| {j.get('104_update_date', '—')} | {_fmt_salary(j.get('salary_min'))} | "
+                f"| {_fmt_score(j.get('url', ''), evaluations)} | "
+                f"{j.get('104_update_date', '—')} | {_fmt_salary(j.get('salary_min'))} | "
                 f"{_trim(j.get('company', '—'), 30)} | "
                 f"{_trim(j.get('industry', '') or '—', 20)} | "
                 f"{_trim(j.get('title', '—'), 50)} | "
@@ -228,12 +272,13 @@ def build_markdown(scan: ScanResult, today: str, *, full: bool = False) -> str:
         with_salary = [j for j in active_jobs if j.get("salary_min") is not None]
         neg_salary = [j for j in active_jobs if j.get("salary_min") is None]
         by_salary = sorted(with_salary, key=lambda j: j.get("salary_min") or 0, reverse=True) + neg_salary
-        lines.append("| 月薪下限 | 公司 | 產業 | 職位 | 地區 | 連結 | 徵才積極度 |")
-        lines.append("|---|---|---|---|---|---|---|")
+        lines.append("| 評分 | 月薪下限 | 公司 | 產業 | 職位 | 地區 | 連結 | 徵才積極度 |")
+        lines.append("|---|---|---|---|---|---|---|---|")
         for j in by_salary:
             notes = j.get("notes") or {}
             lines.append(
-                f"| {_fmt_salary(j.get('salary_min'))} | "
+                f"| {_fmt_score(j.get('url', ''), evaluations)} | "
+                f"{_fmt_salary(j.get('salary_min'))} | "
                 f"{_trim(j.get('company', '—'), 30)} | "
                 f"{_trim(j.get('industry', '') or '—', 20)} | "
                 f"{_trim(j.get('title', '—'), 50)} | "
@@ -253,6 +298,16 @@ def build_markdown(scan: ScanResult, today: str, *, full: bool = False) -> str:
         for j in new_paid + new_negotiable:
             lines.append(f"### {j.get('company', '—')} — {j.get('title', '—')}")
             lines.append("")
+            url = j.get("url", "")
+            ev = evaluations.get(url) if evaluations else None
+            if ev and ev.global_score > 0:
+                lines.append(
+                    f"- **評估**：{_score_emoji(ev.global_score)} **{ev.global_score:.2f}** / 5"
+                    f" — [{ev.report_num or '報告'}]({ev.report_path or '#'})"
+                    f" ｜ legitimacy: {ev.legitimacy or '—'}"
+                )
+            else:
+                lines.append("- **評估**：未評估（用 `/eval` 觸發）")
             lines.append(f"- **薪資**：{j.get('salary_raw', '—') or '—'}")
             lines.append(f"- **地區**：{j.get('location', '—') or '—'}")
             if j.get("address"):

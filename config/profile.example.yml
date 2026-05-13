@@ -1,0 +1,36 @@
+# 個人偏好 — 用於 evaluator 的薪資 / 地點 / Red Flags 維度
+# 此檔 .gitignore，內容不會被推上 GitHub
+
+candidate:
+  name: "Charles"
+  email: "charlestyc0527@gmail.com"
+  linkedin: ""        # optional
+  github: ""          # optional
+
+target_compensation:
+  monthly_min: 80000        # 月薪下限（低於此值 → 薪資維度自動 🔴）
+  monthly_target: 120000    # 目標月薪（達到此值 → 薪資維度自動 🟢）
+  currency: "TWD"
+
+location:
+  preferred:
+    - "台北市"
+    - "新北市"
+  open_to_remote: true
+  open_to_overseas: false   # 海外職缺是否考慮（影響成長機會評分）
+  visa_required: false
+
+deal_breakers:
+  # JD 或公司評價中出現這些 → 自動加重 Red Flags 維度扣分
+  - "996"
+  - "派遣"
+  - "週末上班"
+  - "彈性責任制"
+  - "免費試做"
+
+industries:
+  preferred:
+    - "AI / LLM"
+    - "FinTech"
+    - "B2B SaaS"
+  avoided: []

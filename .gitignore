@@ -6,11 +6,17 @@ __pycache__/
 build/
 dist/
 .env
+cv.md
 config/search.yml
+config/profile.yml
 data/scan-history.tsv
 data/last-scan.json
 data/logs/*.log
 data/logs/sample-detail.json
+data/forum-cache/*.json
+data/tracker.tsv
+data/pipeline.md
 reports/daily/*.md
 reports/daily/*.html
+reports/eval/*.md
 .DS_Store

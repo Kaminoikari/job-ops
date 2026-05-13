@@ -1,0 +1,88 @@
+# PM Archetypes — 用於 evaluator 的「職涯目標契合度」維度
+#
+# 每個 archetype 定義：
+#   name: 顯示名稱
+#   keywords: JD 中出現這些字眼時 → 計算 archetype match
+#   proof_points_priority: 評估時要優先挑的 cv.md proof point 類型
+#   fit: primary（夢想職）/ secondary（適配）/ adjacent（伸展） — 影響評分權重
+#
+# 取得 cv.md 後 evaluator 會建議微調 fit；user 可手動 override
+
+archetypes:
+  - name: "AI Product Manager"
+    keywords:
+      - "AI"
+      - "ML"
+      - "LLM"
+      - "RAG"
+      - "agent"
+      - "prompt"
+      - "MLOps"
+      - "AI 產品"
+      - "人工智慧"
+      - "機器學習"
+      - "生成式"
+      - "GenAI"
+    proof_points_priority:
+      - "AI/LLM 專案"
+      - "ML pipeline"
+      - "資料產品"
+      - "evals"
+    fit: "primary"
+
+  - name: "Senior Product Manager"
+    keywords:
+      - "Senior"
+      - "資深"
+      - "Lead"
+      - "Principal"
+      - "5+ years"
+      - "8+ years"
+      - "Sr."
+      - "PM Lead"
+      - "Product Lead"
+    proof_points_priority:
+      - "跨部門領導"
+      - "PRD"
+      - "策略"
+      - "Roadmap"
+      - "OKR / North Star"
+    fit: "primary"
+
+  - name: "Technical PM"
+    keywords:
+      - "Technical PM"
+      - "TPM"
+      - "技術產品經理"
+      - "Platform"
+      - "API"
+      - "SDK"
+      - "Infra"
+      - "DevOps"
+      - "SRE"
+      - "Backend PM"
+    proof_points_priority:
+      - "技術深度"
+      - "API 設計"
+      - "工程協作"
+      - "系統架構"
+    fit: "secondary"
+
+  - name: "Product Builder / 0→1 PM"
+    keywords:
+      - "Builder"
+      - "Founding"
+      - "0 to 1"
+      - "0→1"
+      - "MVP"
+      - "from scratch"
+      - "新事業"
+      - "創新"
+      - "新產品線"
+      - "Greenfield"
+    proof_points_priority:
+      - "Startup 經驗"
+      - "Rapid iteration"
+      - "0→1 從零打造"
+      - "MVP 上線"
+    fit: "secondary"
