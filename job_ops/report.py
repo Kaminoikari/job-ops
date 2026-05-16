@@ -26,6 +26,24 @@ def _trim(s: str, n: int = 80) -> str:
     return s
 
 
+_AI_TIER_LABEL = {
+    "strong": "🤖 強",
+    "moderate": "🤖 中",
+    "weak": "· 弱",
+    "none": "—",
+}
+
+
+def _ai_cell(j: dict) -> str:
+    """日報表格的 AI 意圖欄位。"""
+    intent = j.get("ai_intent") or {}
+    return _AI_TIER_LABEL.get(intent.get("tier", ""), "—")
+
+
+def _is_ai_pm(j: dict) -> bool:
+    return bool((j.get("ai_intent") or {}).get("is_ai_pm"))
+
+
 def _score_emoji(score: float) -> str:
     if score >= 4.0:
         return "🟢"
@@ -55,20 +73,21 @@ def _job_row(j: dict, evaluations: dict[str, Evaluation] | None = None) -> str:
     url = j.get("url", "")
     link = f"[104]({url})" if url else "—"
     score = _fmt_score(url, evaluations)
+    ai = _ai_cell(j)
     notes = j.get("notes") or {}
     activeness = _trim(str(notes.get("activeness", "") or "—"), 20)
     reply = _trim(str(notes.get("reply_info", "") or "—"), 18)
     resume = _trim(str(notes.get("resume_info", "") or "—"), 18)
     return (
-        f"| {score} | {salary} | {company} | {industry} | {title} | {loc} | {link} | "
+        f"| {score} | {ai} | {salary} | {company} | {industry} | {title} | {loc} | {link} | "
         f"{activeness} | {reply} | {resume} |"
     )
 
 
 def _job_row_header() -> list[str]:
     return [
-        "| 評分 | 月薪下限 | 公司 | 產業 | 職位 | 地區 | 連結 | 徵才積極度 | 回覆求職者 | 聯絡應徵者 |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "| 評分 | AI | 月薪下限 | 公司 | 產業 | 職位 | 地區 | 連結 | 徵才積極度 | 回覆求職者 | 聯絡應徵者 |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
 
 
@@ -88,7 +107,10 @@ def build_markdown(
     lines: list[str] = []
     new_paid = [j for j in scan.new_items if j.get("salary_min") is not None]
     new_negotiable = [j for j in scan.new_items if j.get("salary_min") is None]
-    new_paid.sort(key=lambda j: j.get("salary_min") or 0, reverse=True)
+    # 排序：AI PM 職缺優先，其次月薪降序
+    new_paid.sort(key=lambda j: (not _is_ai_pm(j), -(j.get("salary_min") or 0)))
+    new_negotiable.sort(key=lambda j: not _is_ai_pm(j))
+    new_ai_count = sum(1 for j in scan.new_items if _is_ai_pm(j))
 
     active_jobs = scan.new_items + scan.refreshed + scan.still_listed
     evaluated_active = (
@@ -103,6 +125,7 @@ def build_markdown(
     lines.append("")
     lines.append(f"- 今日總抓取：**{scan.total_today()}** 筆")
     lines.append(f"- 🆕 今日新上架：**{len(scan.new_items)}** 筆（含面議 {len(new_negotiable)} 筆）")
+    lines.append(f"- 🤖 其中 AI PM 職缺：**{new_ai_count}** 筆（JD 意圖偵測判定，已排前）")
     lines.append(f"- 🔄 104 更新日期變動：**{len(scan.refreshed)}** 筆")
     lines.append(f"- 💰 薪資變動：**{len(scan.salary_changed)}** 筆")
     lines.append(f"- 📌 仍在架（無變動）：{len(scan.still_listed)} 筆")
@@ -125,7 +148,7 @@ def build_markdown(
         for j in new_paid:
             lines.append(_job_row(j, evaluations))
         if new_negotiable:
-            lines.append("| **— 以下為面議 —** | | | | | | | | | |")
+            lines.append("| **— 以下為面議 —** | | | | | | | | | | |")
             for j in new_negotiable:
                 lines.append(_job_row(j, evaluations))
         lines.append("")
@@ -308,6 +331,17 @@ def build_markdown(
                 )
             else:
                 lines.append("- **評估**：未評估（用 `/eval` 觸發）")
+            intent = j.get("ai_intent") or {}
+            if intent:
+                ai_label = _AI_TIER_LABEL.get(intent.get("tier", ""), "—")
+                matched = intent.get("matched") or []
+                if matched:
+                    lines.append(
+                        f"- **AI 意圖**：{ai_label}（score {intent.get('score', 0)}）"
+                        f" — 命中訊號：{', '.join(matched[:8])}"
+                    )
+                else:
+                    lines.append(f"- **AI 意圖**：{ai_label}")
             lines.append(f"- **薪資**：{j.get('salary_raw', '—') or '—'}")
             lines.append(f"- **地區**：{j.get('location', '—') or '—'}")
             if j.get("address"):

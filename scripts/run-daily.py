@@ -29,6 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from job_ops.ai_intent import annotate_ai_intent
 from job_ops.config import load_email_env, load_search_config, passes_filters
 from job_ops.email_sender import send_daily_email
 from job_ops.history import (
@@ -143,6 +144,9 @@ def main() -> int:
         today_jobs = [j for j in raw_jobs if passes_filters(j, cfg.filters)]
         log.info("after filter: %d jobs", len(today_jobs))
 
+        # AI 意圖標記：在 compare 前標好，scan 各 list 沿用同批 dict 即帶有 ai_intent
+        annotate_ai_intent(today_jobs)
+
         log.info("=== Phase 2: 比對 history ===")
         history = load_history(HISTORY_PATH)
         log.info("history records: %d", len(history))
@@ -157,6 +161,13 @@ def main() -> int:
         new_history = merge_into_history(today_jobs, history, scan, today=today)
         save_history(HISTORY_PATH, new_history)
         _cache_last_scan(today_jobs, scan)
+
+    # 確保 scan 各 list 都帶 ai_intent（cached 模式的 dict 與 today_jobs 是分開反序列化的）
+    annotate_ai_intent(
+        scan.new_items + scan.refreshed + scan.salary_changed + scan.still_listed
+    )
+    n_ai = sum(1 for j in scan.new_items if (j.get("ai_intent") or {}).get("is_ai_pm"))
+    log.info("AI 意圖標記：今日新上架 %d / %d 筆判定為 AI PM", n_ai, len(scan.new_items))
 
     log.info("=== Phase 4: 產出報告 ===")
     evaluations = {ev.url: ev for ev in load_tracker(TRACKER_PATH)}
