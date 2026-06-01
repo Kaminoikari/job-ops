@@ -1,9 +1,22 @@
 # 104 搜尋條件
 keywords:
+  # 寬詞（PM 紅海大詞；104 是相關性排序，冷門領域的 PM 缺在寬詞下易排到數百名外）
   - 產品經理
   - Product Manager
   - 資深產品經理
   - Product Builder
+  # 領域窄詞：撈出 title 被 AI/領域字稀釋、在 PM 寬詞下排序沉底的缺
+  # （例：「AI 產品經理_先進工業電腦視覺」在「產品經理」排 865 名，在「電腦視覺」排第 9 名）
+  - AI 產品經理
+  - AI Product Manager
+  - 電腦視覺
+
+# 104 職務類別代碼（職類精準涵蓋，撈 title 不含關鍵字但職類掛 PM 的缺）
+# 代碼查 https://static.104.com.tw/category-tool/json/JobCat.json
+# 注意：jobcat 一樣按更新日降序，對「排序沉底」無幫助，是廣度補強而非深度
+jobcats:
+  - "2004003009"      # 產品經理
+  - "2004003004"      # 其他專案管理師
 
 areas:
   - 台北市
@@ -11,7 +24,7 @@ areas:
   - 新竹市
   - 海外地區          # 含中國、日本、東南亞、北美、歐洲等所有海外職缺
 
-# 每組 keyword 最多翻幾頁（每頁約 20 筆）
+# 每組 keyword / jobcat 最多翻幾頁（每頁約 20 筆）
 # 第一次撈歷史可以拉高到 50；日常運作 5 通常足夠
 max_pages_per_keyword: 5
 

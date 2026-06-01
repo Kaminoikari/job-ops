@@ -21,6 +21,7 @@ class FilterConfig:
 class SearchConfig:
     keywords: list[str]
     areas: list[str]
+    jobcats: list[str] = field(default_factory=list)  # 104 職務類別代碼，職類精準涵蓋
     max_pages_per_keyword: int = 5
     from_date: str | None = None         # YYYY-MM-DD；只保留 appearDate >= 此日期
     filters: FilterConfig = field(default_factory=FilterConfig)
@@ -52,6 +53,7 @@ def load_search_config(path: str | Path) -> SearchConfig:
     return SearchConfig(
         keywords=list(raw.get("keywords") or []),
         areas=list(raw.get("areas") or []),
+        jobcats=[str(c) for c in (raw.get("jobcats") or [])],
         max_pages_per_keyword=int(raw.get("max_pages_per_keyword", 5)),
         from_date=(raw.get("from_date") or None),
         filters=FilterConfig(

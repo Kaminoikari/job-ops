@@ -219,20 +219,31 @@ class OneZeroFourScraper:
 
     async def search(
         self,
-        keyword: str,
-        areas: list[str],
+        keyword: str = "",
+        areas: list[str] | None = None,
         max_pages: int = 5,
         from_date: str | None = None,
+        jobcat: str | None = None,
     ) -> list[dict]:
         """搜尋職缺，回傳 [{url, company, title, appear_date}, ...]。
 
+        keyword：全文關鍵字搜尋（寬詞，相關性排序，紅海大詞易把職缺排到很後面）。
+        jobcat：104 職務類別代碼（comma-separated）。職類精準涵蓋——可撈到 title 不含
+                關鍵字、但職類正確的職缺。keyword 與 jobcat 至少需給一個。
         from_date 格式 YYYY-MM-DD；翻頁時若整頁 appearDate 都早於此日期就停止
         （104 預設 order=12 是按更新日期降序排列）。
         """
+        if not keyword and not jobcat:
+            raise ValueError("search() 需至少提供 keyword 或 jobcat 其一")
         from_date_compact = from_date.replace("-", "") if from_date else None
-        params: dict = {"keyword": keyword, "order": 12, "asc": 0, "mode": "s"}
+        params: dict = {"order": 12, "asc": 0, "mode": "s"}
+        if keyword:
+            params["keyword"] = keyword
+        if jobcat:
+            params["jobcat"] = jobcat
         if areas:
             params["area"] = resolve_area_codes(areas)
+        label = keyword or f"jobcat:{jobcat}"
 
         results: list[dict] = []
         seen_urls: set[str] = set()
@@ -244,7 +255,7 @@ class OneZeroFourScraper:
                     SEARCH_URL,
                     params=params,
                     headers=self._headers(
-                        f"https://www.104.com.tw/jobs/search/?keyword={quote(keyword)}"
+                        f"https://www.104.com.tw/jobs/search/?keyword={quote(label)}"
                     ),
                 )
                 if resp.status_code == 429:
@@ -288,8 +299,8 @@ class OneZeroFourScraper:
                     added_this_page += 1
 
                 log.info(
-                    "104 search page=%d keyword=%s count=%d kept=%d min_appear=%s",
-                    page, keyword, len(jobs), added_this_page, page_min_date,
+                    "104 search page=%d query=%s count=%d kept=%d min_appear=%s",
+                    page, label, len(jobs), added_this_page, page_min_date,
                 )
 
                 # Early-stop：若整頁最早的 appearDate 已經 < from_date，後續頁更舊不用翻
@@ -416,9 +427,12 @@ async def scrape_all(
     detail_concurrency: int = 3,
     sample_dump_path: Path | None = None,
     from_date: str | None = None,
+    jobcats: list[str] | None = None,
 ) -> list[dict]:
-    """對每個 keyword 跑 search + detail，回傳合併去重後的完整 dict list。
+    """對每個 keyword 與 jobcat 跑 search + detail，回傳合併去重後的完整 dict list。
 
+    keywords：全文關鍵字（寬詞 + 領域窄詞）。
+    jobcats：104 職務類別代碼清單，職類精準涵蓋（撈 title 不含關鍵字但職類正確的缺）。
     from_date: YYYY-MM-DD；只保留 appearDate >= from_date 的職缺
     （104 search 預設按更新日降序，會做翻頁 early-stop 加速）。
     """
@@ -426,14 +440,23 @@ async def scrape_all(
     try:
         all_search: list[dict] = []
         seen: set[str] = set()
-        for kw in keywords:
-            results = await scraper.search(kw, areas, max_pages=max_pages, from_date=from_date)
+
+        async def _collect(results: list[dict], label: str) -> None:
             for r in results:
                 if r["url"] in seen:
                     continue
                 seen.add(r["url"])
                 all_search.append(r)
-            log.info("keyword=%s collected %d unique URLs so far", kw, len(all_search))
+            log.info("query=%s collected %d unique URLs so far", label, len(all_search))
+
+        for kw in keywords:
+            results = await scraper.search(kw, areas, max_pages=max_pages, from_date=from_date)
+            await _collect(results, kw)
+        for jc in jobcats or []:
+            results = await scraper.search(
+                areas=areas, max_pages=max_pages, from_date=from_date, jobcat=jc
+            )
+            await _collect(results, f"jobcat:{jc}")
 
         log.info("Total unique URLs across keywords: %d, fetching details...", len(all_search))
 

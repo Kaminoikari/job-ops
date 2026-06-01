@@ -105,6 +105,7 @@ async def _do_scrape(cfg) -> list[dict]:
         detail_concurrency=3,
         sample_dump_path=SAMPLE_DUMP_PATH,
         from_date=cfg.from_date,
+        jobcats=cfg.jobcats,
     )
 
 
@@ -137,7 +138,8 @@ def main() -> int:
                  len(today_jobs), len(scan.new_items))
     else:
         log.info("=== Phase 1: 爬 104 ===")
-        log.info("keywords=%s areas=%s max_pages=%d", cfg.keywords, cfg.areas, cfg.max_pages_per_keyword)
+        log.info("keywords=%s jobcats=%s areas=%s max_pages=%d",
+                 cfg.keywords, cfg.jobcats, cfg.areas, cfg.max_pages_per_keyword)
         raw_jobs = asyncio.run(_do_scrape(cfg))
         log.info("scrape complete: %d jobs (before filter)", len(raw_jobs))
 
