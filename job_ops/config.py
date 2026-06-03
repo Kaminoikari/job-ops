@@ -8,6 +8,8 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
+from job_ops.role_filter import is_target_role
+
 
 @dataclass
 class FilterConfig:
@@ -87,6 +89,8 @@ def passes_filters(job: dict, cfg: FilterConfig) -> bool:
     company = job.get("company", "")
     salary_min = job.get("salary_min")
 
+    if not is_target_role(title):
+        return False
     if any(kw in title for kw in cfg.exclude_keywords):
         return False
     if any(c in company for c in cfg.exclude_companies):
