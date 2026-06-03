@@ -44,9 +44,13 @@ def _is_ai_pm(j: dict) -> bool:
 
 
 def _ai_score(j: dict) -> float:
-    """AI 意圖分數，作為排序鍵（越高越前）。"""
+    """排序鍵：優先用 priority（含 AI native / 供應鏈 產業公司加分），fallback 到 score。"""
+    intent = j.get("ai_intent") or {}
+    val = intent.get("priority")
+    if val is None:
+        val = intent.get("score")
     try:
-        return float((j.get("ai_intent") or {}).get("score") or 0.0)
+        return float(val or 0.0)
     except (TypeError, ValueError):
         return 0.0
 
@@ -88,8 +92,9 @@ def build_markdown(
     full=False (預設、日常模式): 只顯示變化（新上架／更新／薪資變動）
     full=True: 加上「全部活躍職缺 — 多排序視角」附錄
 
-    所有職缺都已通過 AI 關鍵字篩選；已下架區塊不再顯示（職缺常被下架再上架刷
-    更新日期，已下架資訊無參考價值）。
+    所有職缺都已通過 AI 關鍵字篩選；已下架區塊與詳細 JD 區塊都不再顯示（職缺常被
+    下架再上架刷更新日期，已下架資訊無參考價值；詳細資訊過於冗長）。
+    排序：AI native / AI 供應鏈 產業或公司優先（ai_intent.priority），其次月薪。
     """
     lines: list[str] = []
     new_paid = [j for j in scan.new_items if j.get("salary_min") is not None]
@@ -274,55 +279,6 @@ def build_markdown(
                 f"{_trim(str(notes.get('activeness', '') or '—'), 18)} |"
             )
         lines.append("")
-
-    # 6. 詳細 JD 附錄 — 只列「今日新上架」，無論 full 與否都顯示
-    if scan.new_items:
-        lines.append("---")
-        lines.append("")
-        lines.append("## 📂 詳細資訊（今日新上架）")
-        lines.append("")
-        for j in new_paid + new_negotiable:
-            lines.append(f"### {j.get('company', '—')} — {j.get('title', '—')}")
-            lines.append("")
-            intent = j.get("ai_intent") or {}
-            if intent:
-                ai_label = _AI_TIER_LABEL.get(intent.get("tier", ""), "—")
-                matched = intent.get("matched") or []
-                if matched:
-                    lines.append(
-                        f"- **AI 意圖**：{ai_label}（score {intent.get('score', 0)}）"
-                        f" — 命中訊號：{', '.join(matched[:8])}"
-                    )
-                else:
-                    lines.append(f"- **AI 意圖**：{ai_label}")
-            lines.append(f"- **薪資**：{j.get('salary_raw', '—') or '—'}")
-            lines.append(f"- **地區**：{j.get('location', '—') or '—'}")
-            if j.get("address"):
-                lines.append(f"- **地址**：{j.get('address')}")
-            if j.get("industry"):
-                lines.append(f"- **產業**：{j.get('industry')}")
-            notes = j.get("notes") or {}
-            if notes.get("activeness"):
-                lines.append(f"- **徵才積極度**：{notes['activeness']}")
-            if notes.get("reply_info"):
-                lines.append(f"- **回覆資訊**：{notes['reply_info']}")
-            lines.append(f"- **連結**：{j.get('url', '')}")
-            if j.get("benefits"):
-                lines.append("")
-                lines.append("**公司福利**：")
-                lines.append("")
-                lines.append("> " + j["benefits"].replace("\n", "\n> "))
-            jd = j.get("jd", "")
-            if jd:
-                lines.append("")
-                lines.append("**Job Description**：")
-                lines.append("")
-                # 限制 JD 長度
-                jd_trim = jd if len(jd) < 1500 else jd[:1500] + "…（截斷）"
-                lines.append("> " + jd_trim.replace("\n", "\n> "))
-            lines.append("")
-            lines.append("---")
-            lines.append("")
 
     lines.append(f"_Generated at {today} by job-ops_")
     return "\n".join(lines) + "\n"

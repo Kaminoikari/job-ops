@@ -92,8 +92,40 @@ def test_product_director_with_ai_passes_and_ranks_high():
 
 
 def test_ai_supply_chain_keyword_passes_gate():
+    # 「AI 伺服器」明確點名 AI → 滿足門檻
     r = classify_ai_intent(_jd("負責 AI 伺服器與 GPU 加速器產品規劃"))
     assert r.has_ai is True
+
+
+def test_pure_supply_chain_hardware_is_not_a_gate():
+    # 純供應鏈硬體詞（gpu/算力）沒有實際 AI signal → 不通過 hard gate（只供加分排序）
+    r = classify_ai_intent(_jd("負責 GPU 驅動程式與 HBM 記憶體模組產品線"))
+    assert r.has_ai is False
+
+
+# ---------- AI native / 供應鏈 產業公司「優先」加分（不影響 tier / 門檻）----------
+
+
+def test_priority_boost_from_ai_industry_does_not_change_tier():
+    plain = classify_ai_intent({
+        "title": "產品經理", "jd": "公司導入 AI 工具", "industry": "電商", "company": "一般網路公司",
+    })
+    boosted = classify_ai_intent({
+        "title": "產品經理", "jd": "公司導入 AI 工具", "industry": "人工智慧／半導體", "company": "AI 晶片公司",
+    })
+    # 同樣的 JD AI 訊號 → tier / score 不變，但供應鏈產業公司的 priority 較高（排前）
+    assert boosted.score == plain.score
+    assert boosted.tier == plain.tier
+    assert boosted.priority > plain.priority
+
+
+def test_priority_boost_requires_passing_gate():
+    # JD 沒有 AI signal → 即使產業是半導體也不加分、不納入
+    r = classify_ai_intent({
+        "title": "產品經理", "jd": "負責電商網站營運", "industry": "半導體", "company": "晶片大廠",
+    })
+    assert r.has_ai is False
+    assert r.priority == r.score
 
 
 # ---------- 意圖偵測核心：分辨「公司是 AI」vs「角色做 AI」 ----------
@@ -191,7 +223,7 @@ def test_ai_intent_dict_is_json_serializable():
     annotate_ai_intent(jobs)
     round_trip = json.loads(json.dumps(jobs[0]["ai_intent"]))
     assert round_trip["tier"] == "strong"
-    assert set(round_trip.keys()) == {"is_ai_pm", "has_ai", "score", "tier", "matched"}
+    assert set(round_trip.keys()) == {"is_ai_pm", "has_ai", "score", "priority", "tier", "matched"}
 
 
 def test_matched_sorted_by_weight_descending():

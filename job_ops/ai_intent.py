@@ -84,7 +84,7 @@ MEDIUM_SIGNALS: dict[str, float] = {
     "多模態": 3.0,
     "rpa": 2.5,
     "agent": 3.0,
-    # AI 供應鏈（半導體 / 算力 / 基礎設施）— 用來涵蓋 AI 供應鏈相關公司
+    # 明確點名 AI 的供應鏈詞（本身就是 AI 提及，滿足 has_ai 門檻）
     "ai 伺服器": 3.5,
     "ai server": 3.5,
     "ai 晶片": 3.5,
@@ -94,10 +94,6 @@ MEDIUM_SIGNALS: dict[str, float] = {
     "ai 基礎設施": 3.5,
     "ai infrastructure": 3.5,
     "ai 供應鏈": 3.5,
-    "gpu": 3.0,
-    "cuda": 3.0,
-    "hbm": 3.0,
-    "算力": 3.0,
 }
 
 # ROLE：目標角色高權重關鍵字（PM / 產品主管 / builder）。用來把對的職位排前，
@@ -107,6 +103,28 @@ ROLE_SIGNALS: dict[str, float] = {
     "產品長": 4.0,
     "chief product officer": 4.0,
     "product builder": 4.0,
+}
+
+# SUPPLY_CHAIN：AI 供應鏈 / 硬體「優先」訊號（gpu、算力 等）。只用來加分排序，
+# 讓 AI 供應鏈職缺排前；本身不算 AI 訊號、不滿足 has_ai 門檻。真正的 hard gate
+# 永遠是 JD 本身有沒有 AI signal —— 一般網路公司只要 JD 提到 AI 一樣可接受。
+SUPPLY_CHAIN_SIGNALS: dict[str, float] = {
+    "gpu": 2.0,
+    "cuda": 2.0,
+    "hbm": 2.0,
+    "tpu": 2.0,
+    "算力": 2.0,
+}
+
+# 產業 / 公司名稱中的「AI native / AI 供應鏈」優先訊號。只加分排序，不影響 has_ai。
+PRIORITY_CONTEXT: dict[str, float] = {
+    "人工智慧": 2.0,
+    "生成式": 2.0,
+    "半導體": 1.5,
+    "晶片": 1.5,
+    "ic 設計": 1.5,
+    "gpu": 1.5,
+    "雲端": 1.0,
 }
 
 # WEAK：可能只是公司形象包裝，本身不足以判定角色涉及 AI
@@ -145,9 +163,9 @@ WEAK_THRESHOLD = 1.0
 
 _CJK = re.compile(r"[一-鿿]")
 
-# AI 訊號 lexicon（滿足 has_ai 門檻）；ROLE_SIGNALS 不在內（純角色詞不算 AI 訊號）。
+# AI 訊號 lexicon（滿足 has_ai 門檻）；ROLE / SUPPLY_CHAIN 不在內（只加分排序，不算 AI 訊號）。
 AI_LEXICONS = (STRONG_SIGNALS, MEDIUM_SIGNALS, WEAK_SIGNALS)
-ALL_LEXICONS = AI_LEXICONS + (ROLE_SIGNALS,)
+ALL_LEXICONS = AI_LEXICONS + (ROLE_SIGNALS, SUPPLY_CHAIN_SIGNALS)
 
 
 @dataclass
@@ -155,7 +173,8 @@ class AIIntentResult:
     """單筆職缺的 AI 意圖判定結果。"""
     is_ai_pm: bool
     has_ai: bool                       # 是否出現任一 AI 關鍵字（納入報告的硬門檻）
-    score: float
+    score: float                       # JD/title 的 AI 訊號分數（決定 tier）
+    priority: float                    # score + AI native/供應鏈 產業公司加分（排序用）
     tier: str                          # strong / moderate / weak / none
     matched: list[str] = field(default_factory=list)
 
@@ -165,6 +184,7 @@ class AIIntentResult:
             "is_ai_pm": self.is_ai_pm,
             "has_ai": self.has_ai,
             "score": self.score,
+            "priority": self.priority,
             "tier": self.tier,
             "matched": list(self.matched),
         }
@@ -214,7 +234,7 @@ def classify_ai_intent(job: dict) -> AIIntentResult:
     """
     text = ((job.get("title") or "") + "\n" + (job.get("jd") or "")).lower()
     if not text.strip():
-        return AIIntentResult(is_ai_pm=False, has_ai=False, score=0.0, tier="none")
+        return AIIntentResult(is_ai_pm=False, has_ai=False, score=0.0, priority=0.0, tier="none")
 
     # 收集所有命中的 (phrase, weight, has_verb)
     candidates: list[tuple[str, float, bool]] = []
@@ -244,11 +264,24 @@ def classify_ai_intent(job: dict) -> AIIntentResult:
         if _phrase_present(text, anti):
             score -= ANTI_PENALTY
 
+    # score 只由 JD/title 的 AI 訊號決定 → 決定 tier 與 is_ai_pm（hard gate 邏輯）
     score = max(0.0, round(score, 1))
     tier, is_ai_pm = _score_to_tier(score)
+
+    # priority 在 score 之上再加「AI native / AI 供應鏈 產業或公司」優先分，只用於排序，
+    # 不影響 tier / has_ai（一般網路公司只要 JD 有 AI signal 仍可接受，只是排序較後）。
+    priority = score
+    if has_ai:
+        context = ((job.get("industry") or "") + " " + (job.get("company") or "")).lower()
+        priority += sum(b for p, b in PRIORITY_CONTEXT.items() if p in context)
+    priority = round(priority, 1)
+
     # matched 依權重高→低排序，方便閱讀證據
     matched.sort(key=lambda p: -_phrase_weight(p))
-    return AIIntentResult(is_ai_pm=is_ai_pm, has_ai=has_ai, score=score, tier=tier, matched=matched)
+    return AIIntentResult(
+        is_ai_pm=is_ai_pm, has_ai=has_ai, score=score,
+        priority=priority, tier=tier, matched=matched,
+    )
 
 
 def _is_ai_phrase(phrase: str) -> bool:

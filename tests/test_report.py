@@ -85,12 +85,30 @@ def test_ai_tier_cell_present():
     assert "🤖 強" in md
 
 
-# ---------- 詳細區塊：AI 意圖，無評估 line ----------
+# ---------- 詳細 JD 區塊不再顯示 ----------
 
 
-def test_detail_block_shows_ai_intent_not_eval():
+def test_detail_block_removed():
     scan = ScanResult(today="2026-05-13", new_items=[_job("u1")],
                       refreshed=[], salary_changed=[], still_listed=[], expired=[])
     md = build_markdown(scan, "2026-05-13")
-    assert "**AI 意圖**" in md
-    assert "命中訊號" in md
+    assert "詳細資訊" not in md
+    assert "Job Description" not in md
+    assert "命中訊號" not in md
+
+
+# ---------- 排序：AI 供應鏈 priority 高者排前 ----------
+
+
+def test_priority_orders_new_listings():
+    low = _job("low", salary_min=200000,
+               ai_intent={"is_ai_pm": True, "has_ai": True, "score": 5.0,
+                          "priority": 5.0, "tier": "moderate", "matched": ["ai"]})
+    high = _job("high", salary_min=80000,
+                ai_intent={"is_ai_pm": True, "has_ai": True, "score": 5.0,
+                           "priority": 9.0, "tier": "moderate", "matched": ["ai"]})
+    scan = ScanResult(today="2026-05-13", new_items=[low, high],
+                      refreshed=[], salary_changed=[], still_listed=[], expired=[])
+    md = build_markdown(scan, "2026-05-13")
+    # priority 高（9.0）的 high 應排在 priority 低（5.0）的 low 之前，即使薪資較低
+    assert md.index("[104](high)") < md.index("[104](low)")
