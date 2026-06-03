@@ -29,14 +29,14 @@ _AI_TIER_LABEL = {
     "strong": "🤖 強",
     "moderate": "🤖 中",
     "weak": "· 弱",
-    "none": "—",
+    "none": "無",
 }
 
 
 def _ai_cell(j: dict) -> str:
     """日報表格的 AI 意圖欄位。"""
     intent = j.get("ai_intent") or {}
-    return _AI_TIER_LABEL.get(intent.get("tier", ""), "—")
+    return _AI_TIER_LABEL.get(intent.get("tier", ""), "無")
 
 
 def _is_ai_pm(j: dict) -> bool:
