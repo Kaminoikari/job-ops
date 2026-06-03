@@ -30,6 +30,7 @@ def test_pure_non_ai_pm_jd_is_none():
     r = classify_ai_intent(_jd("負責供應鏈管理與物流流程優化，撰寫 PRD 與規格文件"))
     assert r.tier == "none"
     assert r.is_ai_pm is False
+    assert r.has_ai is False
     assert r.matched == []
 
 
@@ -37,6 +38,62 @@ def test_empty_jd_is_none():
     r = classify_ai_intent(_jd("", title=""))
     assert r.tier == "none"
     assert r.score == 0.0
+    assert r.has_ai is False
+
+
+# ---------- has_ai 納入門檻：只要出現任一 AI 關鍵字就納入 ----------
+
+
+def test_has_ai_true_for_bare_ai_keyword():
+    # 「只有 AI 或 AI product 也可以」— 純 "ai" 弱訊號即滿足納入門檻
+    r = classify_ai_intent(_jd("徵求產品經理，公司使用 AI 工具輔助"))
+    assert r.has_ai is True
+
+
+def test_has_ai_true_for_ai_product():
+    r = classify_ai_intent(_jd("負責 AI product 規劃", title="AI Product Manager"))
+    assert r.has_ai is True
+
+
+def test_has_ai_false_without_any_ai_keyword():
+    r = classify_ai_intent(_jd("負責電商網站營運與行銷活動規劃"))
+    assert r.has_ai is False
+
+
+def test_company_boilerplate_ai_still_passes_gate():
+    # 公司是 AI 新創、職務本身與 AI 無關：仍納入（has_ai），但非強訊號 AI PM
+    r = classify_ai_intent(_jd(
+        "我們是一家 AI 新創公司。徵求產品經理，負責電商網站的 A/B test"
+    ))
+    assert r.has_ai is True
+    assert r.is_ai_pm is False
+
+
+# ---------- 高權重角色關鍵字（純角色詞不滿足 AI 門檻，但有 AI 時拉高分數）----------
+
+
+def test_role_keyword_alone_does_not_pass_ai_gate():
+    # 「產品總監」是高權重角色詞，但本身不是 AI 訊號 → 無其他 AI 字則不納入
+    r = classify_ai_intent(_jd("負責公司整體產品策略", title="產品總監"))
+    assert r.has_ai is False
+    assert "產品總監" in r.matched
+
+
+def test_ai_product_manager_is_strong_signal():
+    r = classify_ai_intent(_jd("負責規劃並打造 AI 產品", title="AI 產品經理"))
+    assert r.has_ai is True
+    assert r.is_ai_pm is True
+
+
+def test_product_director_with_ai_passes_and_ranks_high():
+    r = classify_ai_intent(_jd("主導公司 AI 產品線與 LLM 應用落地", title="產品總監"))
+    assert r.has_ai is True
+    assert r.is_ai_pm is True
+
+
+def test_ai_supply_chain_keyword_passes_gate():
+    r = classify_ai_intent(_jd("負責 AI 伺服器與 GPU 加速器產品規劃"))
+    assert r.has_ai is True
 
 
 # ---------- 意圖偵測核心：分辨「公司是 AI」vs「角色做 AI」 ----------
@@ -134,7 +191,7 @@ def test_ai_intent_dict_is_json_serializable():
     annotate_ai_intent(jobs)
     round_trip = json.loads(json.dumps(jobs[0]["ai_intent"]))
     assert round_trip["tier"] == "strong"
-    assert set(round_trip.keys()) == {"is_ai_pm", "score", "tier", "matched"}
+    assert set(round_trip.keys()) == {"is_ai_pm", "has_ai", "score", "tier", "matched"}
 
 
 def test_matched_sorted_by_weight_descending():

@@ -1,14 +1,20 @@
 # 104 搜尋條件
+# 注意：搜尋只是「廣度撈取」；真正的納入門檻是 JD/title 必須出現 AI 關鍵字
+#（沒有 AI 訊號的職缺會在 job_ops/ai_intent.py 的 has_ai 門檻一律剔除）。
 keywords:
+  # AI PM 高權重目標角色（req: 列為高權重關鍵字）
+  - AI 產品經理
+  - AI Product Manager
+  - AI Product Builder
+  - 產品總監
+  - 產品長
+  - Product Builder
   # 寬詞（PM 紅海大詞；104 是相關性排序，冷門領域的 PM 缺在寬詞下易排到數百名外）
   - 產品經理
   - Product Manager
   - 資深產品經理
-  - Product Builder
   # 領域窄詞：撈出 title 被 AI/領域字稀釋、在 PM 寬詞下排序沉底的缺
   # （例：「AI 產品經理_先進工業電腦視覺」在「產品經理」排 865 名，在「電腦視覺」排第 9 名）
-  - AI 產品經理
-  - AI Product Manager
   - 電腦視覺
 
 # 104 職務類別代碼（職類精準涵蓋，撈 title 不含關鍵字但職類掛 PM 的缺）

@@ -42,7 +42,6 @@ from job_ops.history import (
 )
 from job_ops.report import build_markdown, build_subject, render_html
 from job_ops.scraper_104 import scrape_all
-from job_ops.tracker import TRACKER_PATH, load as load_tracker
 
 
 CONFIG_PATH = ROOT / "config" / "search.yml"
@@ -149,6 +148,12 @@ def main() -> int:
         # AI 意圖標記：在 compare 前標好，scan 各 list 沿用同批 dict 即帶有 ai_intent
         annotate_ai_intent(today_jobs)
 
+        # AI 關鍵字硬門檻：JD / title 沒有任何 AI 訊號的職缺一律剔除，連抓都不抓進來
+        before_ai = len(today_jobs)
+        today_jobs = [j for j in today_jobs if (j.get("ai_intent") or {}).get("has_ai")]
+        log.info("AI 關鍵字篩選：%d → %d 筆（剔除無 AI 訊號 %d 筆）",
+                 before_ai, len(today_jobs), before_ai - len(today_jobs))
+
         log.info("=== Phase 2: 比對 history ===")
         history = load_history(HISTORY_PATH)
         log.info("history records: %d", len(history))
@@ -172,10 +177,7 @@ def main() -> int:
     log.info("AI 意圖標記：今日新上架 %d / %d 筆判定為 AI PM", n_ai, len(scan.new_items))
 
     log.info("=== Phase 4: 產出報告 ===")
-    evaluations = {ev.url: ev for ev in load_tracker(TRACKER_PATH)}
-    if evaluations:
-        log.info("載入 tracker：%d 筆評估記錄", len(evaluations))
-    md = build_markdown(scan, today, full=args.full, evaluations=evaluations)
+    md = build_markdown(scan, today, full=args.full)
     html = render_html(md, today)
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     md_path = REPORT_DIR / f"{today}.md"
