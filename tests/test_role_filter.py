@@ -98,3 +98,41 @@ def test_pm_abbreviation_requires_word_boundary():
     assert is_target_role("產品經理 (PM)") is True
     # 「EPM」內含 pm 子字串，但不是 PM → 不得被白名單救回
     assert is_target_role("Engineering Project Manager (EPM)") is False
+
+
+# ---------- 非 PM 職能（行政/業務/行銷/設計/客服）：應剔除 ----------
+
+NON_PM_TITLES = [
+    "行政主管 Office Manager",
+    "R&D 行政助理",
+    "【海外市場專員】海外業務#國際貿易專業展覽#食品與保健食品產業#AI賦能工作流",
+    "Product Marketing",
+    "Product Marketing Manager",
+    "AI 產品設計師 (AI Product Designer)",
+    "資深介面設計師, Senior UI Designer, Education Solution BU",
+    "Product Sales Manager_先進工業電腦視覺解決方案新事業發展部(台北)",
+    "Marketing Manager",
+    "醫療行銷與產品專員（Medical Marketing and Product Specialist）",
+]
+
+
+@pytest.mark.parametrize("title", NON_PM_TITLES)
+def test_non_pm_roles_rejected(title):
+    assert is_target_role(title) is False
+
+
+# ---------- PM 鄰近職（專案經理/產品管理專員/Product Builder）：應保留 ----------
+
+PM_ADJACENT_KEPT = [
+    "專案經理/Project Manager",
+    "AI Project Manager AI專案經理",
+    "PG - 產品管理專員 Product Management Specialist (新莊)",
+    "[HQ - Taipei] Forward-Deployed Product Builder",
+    "AI 產品管理PM (新北)",
+    "Sales PM (歐洲區)_5301",  # 含 sales 黑名單字，但 \bPM\b 白名單優先 → 保留
+]
+
+
+@pytest.mark.parametrize("title", PM_ADJACENT_KEPT)
+def test_pm_adjacent_roles_kept(title):
+    assert is_target_role(title) is True
