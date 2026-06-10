@@ -121,6 +121,44 @@ def test_non_pm_roles_rejected(title):
     assert is_target_role(title) is False
 
 
+# ---------- 非 PM 職能（美術特效/課程講師/BD/開發）：應剔除 ----------
+# fixtures 取自 2026-06-10 實際掃描結果的漏網 title。
+
+NON_PM_TITLES_2026_06_10 = [
+    "資深動態特效",
+    "【領導影響力學院】課程企劃經理",
+    "桃竹區-AI講師(機器學習、深度學習、自然語意、影像辨識...)",
+    "全球市場開發經理 Global Partnership",
+    "Senior Business Development Manager – AI Call Agent Solutions",
+    "軟體研發替代役 (嵌入式系統暨影像處理)",
+    "智慧製造工程中心-產測程式開發 技術主任(外派越南)",
+]
+
+
+@pytest.mark.parametrize("title", NON_PM_TITLES_2026_06_10)
+def test_non_pm_roles_2026_06_10_rejected(title):
+    assert is_target_role(title) is False
+
+
+# ---------- 白名單不得被「部門名」觸發：產品管理處/部 是單位不是職能 ----------
+
+def test_whitelist_not_triggered_by_department_name():
+    # 「產品管理處」是部門名，title 本體是行銷缺 → 不得豁免，應被「行銷」剔除
+    assert is_target_role("商品行銷企劃人員(產品管理處)") is False
+
+
+def test_pm_management_as_role_still_kept():
+    # 「產品管理」後接職能字（師/專員/副理）仍是白名單
+    assert is_target_role("產品管理師(台北/高雄)") is True
+    assert is_target_role("PG - 產品管理專員 Product Management Specialist (新莊)") is True
+
+
+def test_blacklisted_function_word_saved_by_pm_whitelist():
+    # 含「課程/動畫」但 title 本體是產品經理 → 白名單救回
+    assert is_target_role("線上課程產品經理") is True
+    assert is_target_role("【在家上班】新創軟體公司  徵   2D原畫/ 產品經理") is True
+
+
 # ---------- PM 鄰近職（專案經理/產品管理專員/Product Builder）：應保留 ----------
 
 PM_ADJACENT_KEPT = [

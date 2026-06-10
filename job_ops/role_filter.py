@@ -13,15 +13,17 @@ import re
 
 # PM 白名單：含其一即視為目標 PM 缺，即使同時命中黑名單也豁免。
 # 用「Product Manager」全詞（而非 Product），所以 Product Engineer 不會被誤救。
-# 「產品管理」救回「產品管理專員 / Product Management Specialist」這類入門 PM。
 _PM_WHITELIST = (
     "產品經理",
     "Product Manager",
     "Product Owner",
-    "產品企劃",
-    "產品管理",
     "Product Management",
 )
+
+# 「產品管理/產品企劃」救回「產品管理專員」這類入門 PM，但後接組織單位字
+# （處/部/組/室/課/中心）時是部門名而非職能，不得觸發豁免，
+# 否則「商品行銷企劃人員(產品管理處)」會被部門名救回。
+_PM_FUNCTION = re.compile(r"產品(管理|企劃)(?![處部組室課中])")
 
 # 「PM」縮寫須 word-boundary，否則 EPM / PMP / PMO / PMM 會被誤判成 PM。
 _PM_ABBR = re.compile(r"\bPM\b")
@@ -63,6 +65,20 @@ _NON_PM_BLACKLIST = (
     "採購",
     "辦事員",
     "差旅",
+    # 美術 / 內容製作（「資深動態特效」這類遊戲美術缺）
+    "特效",
+    "動畫",
+    "美術",
+    "原畫",
+    # 教育訓練（「課程企劃經理」「AI講師」）
+    "課程",
+    "講師",
+    # BD / 市場開發（與既有 sales 同類）
+    "市場開發",
+    "business development",
+    # 其他混入過的非 PM 職
+    "替代役",
+    "程式開發",
 )
 
 
@@ -70,7 +86,11 @@ def is_target_role(title: str) -> bool:
     """title 是否為目標 PM 缺；非字串或空字串時保守保留。"""
     if not title:
         return True
-    if any(w in title for w in _PM_WHITELIST) or _PM_ABBR.search(title):
+    if (
+        any(w in title for w in _PM_WHITELIST)
+        or _PM_FUNCTION.search(title)
+        or _PM_ABBR.search(title)
+    ):
         return True
     lowered = title.lower()
     if any(b in lowered for b in _ROLE_BLACKLIST):
