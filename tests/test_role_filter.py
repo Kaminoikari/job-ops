@@ -1,10 +1,10 @@
-"""職稱過濾 is_target_role 測試 — 黑名單剔工程職、PM 白名單豁免。
+"""職稱過濾測試 — is_target_role（title 階段）+ confirm_target_role（JD 階段）。
 
-fixtures 取自 2026-06-04 實際掃描結果的真實 104 title。
+fixtures 取自 2026-06-04 / 2026-06-10 實際掃描結果的真實 104 title 與 JD 片段。
 """
 import pytest
 
-from job_ops.role_filter import is_target_role
+from job_ops.role_filter import confirm_target_role, is_target_role
 
 
 # ---------- 純工程師 / RD 缺：應剔除 ----------
@@ -167,10 +167,70 @@ PM_ADJACENT_KEPT = [
     "PG - 產品管理專員 Product Management Specialist (新莊)",
     "[HQ - Taipei] Forward-Deployed Product Builder",
     "AI 產品管理PM (新北)",
-    "Sales PM (歐洲區)_5301",  # 含 sales 黑名單字，但 \bPM\b 白名單優先 → 保留
+    "Sales PM (歐洲區)_5301",  # 含 sales 黑名單字，但 PM 縮寫白名單優先 → 保留
+    "AI Product Builder【股感資訊】",
+    "AI 落地產品負責人",
 ]
 
 
 @pytest.mark.parametrize("title", PM_ADJACENT_KEPT)
 def test_pm_adjacent_roles_kept(title):
     assert is_target_role(title) is True
+
+
+# ---------- PM 縮寫邊界：中文字 / 底線旁的 PM 也要命中 ----------
+# Python re 的 \b 把中文與底線都當 word char，「技術PM」「PM_新竹」會比對失敗，
+# 這些是真 PM 缺，須用自訂邊界救回。
+
+def test_pm_abbreviation_adjacent_to_cjk_and_underscore():
+    assert is_target_role("【產品部】AI應用技術PM") is True
+    assert is_target_role("【緯創資通】AI Server PM_新竹_6/27 (六) 台北面談會") is True
+    # 英數相鄰仍不算獨立 PM：TPMO / EPM / PMO 不得誤中
+    assert is_target_role("【TPMO0301】Operation Manager 行銷企劃") is False
+    assert is_target_role("Engineering Project Manager (EPM)") is False
+
+
+# ---------- JD 階段 confirm_target_role：title 模糊時看 JD 內容 ----------
+# JD fixtures 節錄自 2026-06-10 實際掃描。
+
+def test_title_whitelisted_skips_jd_check():
+    # title 已明確是 PM → JD 完全不像 PM 也保留
+    assert confirm_target_role("產品經理", "負責客戶投訴處理與銷售目標") is True
+
+
+def test_ambiguous_title_kept_when_jd_shows_pm_work():
+    assert confirm_target_role(
+        "TPM (Technical Project Manager) 技術專案經理",
+        "負責跨部門專案管理，統籌產品需求與時程",
+    ) is True
+    assert confirm_target_role(
+        "PJM",
+        "own the product roadmap, write prd and drive product planning",
+    ) is True
+
+
+def test_ambiguous_title_cut_when_jd_shows_non_pm_work():
+    # 緯創 AI Server AM：客戶關係 + 報價 + 銷售目標 → account manager
+    assert confirm_target_role(
+        "【緯創資通】AI Server AM_新竹場",
+        "建立和維護與客戶的長期合作關係，提供專業的客戶服務和支援。NPI報價及成本分析，在壓力下達成銷售目標",
+    ) is False
+    # Asset Manager：JD 無任何產品/專案管理訊號
+    assert confirm_target_role(
+        "Asset Manager",
+        "負責不動產資產評估、租賃合約管理與投資報酬分析",
+    ) is False
+    # 群益 AI應用規劃師：LLM 微調 / RAG 實作 → 工程實作職
+    assert confirm_target_role(
+        "AI應用規劃師",
+        "進行機器學習模型與大型語言模型（LLM）之微調、優化與應用落地，規劃與實作 RAG架構",
+    ) is False
+
+
+def test_ambiguous_title_with_empty_jd_kept_conservatively():
+    assert confirm_target_role("綜合企劃處-整合及創新應用人員", "") is True
+
+
+def test_blacklisted_title_still_cut_regardless_of_jd():
+    # title 黑名單命中 → JD 再像 PM 也不豁免（第一階段已剔，此為防呆）
+    assert confirm_target_role("資深動態特效", "負責產品規劃與 roadmap") is False

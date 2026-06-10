@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-from job_ops.role_filter import is_target_role
+from job_ops.role_filter import confirm_target_role
 
 
 @dataclass
@@ -89,7 +89,8 @@ def passes_filters(job: dict, cfg: FilterConfig) -> bool:
     company = job.get("company", "")
     salary_min = job.get("salary_min")
 
-    if not is_target_role(title):
+    # 兩階段職稱過濾的第二階段：title 模糊時看 JD 內容判定職能
+    if not confirm_target_role(title, job.get("jd", "")):
         return False
     if any(kw in title for kw in cfg.exclude_keywords):
         return False
