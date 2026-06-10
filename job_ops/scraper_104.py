@@ -461,8 +461,9 @@ async def scrape_all(
 
         log.info("Total unique URLs across keywords: %d", len(all_search))
 
-        # 職稱預篩：用 search 列表已有的 title 先剔除工程師/RD 缺，
-        # 這些缺不必抓 detail —— 既讓報告乾淨，也大幅減少 detail 抓取量。
+        # 職稱預篩（兩階段過濾的第一階段）：用 search 列表已有的 title 先剔除
+        # 明確非 PM 的缺（工程師/行政/行銷/美術…），不必抓 detail，大幅減少抓取量。
+        # title 模糊的缺會在 detail 抓完後由 confirm_target_role 看 JD 內容判定。
         before_role = len(all_search)
         all_search = [it for it in all_search if is_target_role(it.get("title", ""))]
         log.info("職稱預篩：%d → %d 筆（剔除非 PM 職缺 %d 筆），開始抓 detail...",
