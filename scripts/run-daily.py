@@ -35,13 +35,14 @@ from job_ops.email_sender import send_daily_email
 from job_ops.history import (
     Record,
     ScanResult,
+    classify_missing,
     compare,
     load_history,
     merge_into_history,
     save_history,
 )
 from job_ops.report import build_markdown, build_subject, render_html
-from job_ops.scraper_104 import scrape_all
+from job_ops.scraper_104 import scrape_all, verify_listings_alive
 
 
 CONFIG_PATH = ROOT / "config" / "search.yml"
@@ -73,6 +74,7 @@ def _cache_last_scan(today_jobs: list[dict], scan: ScanResult) -> None:
             "salary_changed": scan.salary_changed,
             "still_listed": scan.still_listed,
             "expired": [asdict(r) for r in scan.expired],
+            "listed_not_scanned": [asdict(r) for r in scan.listed_not_scanned],
         },
     }
     LAST_SCAN_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -92,6 +94,7 @@ def _load_cached_scan() -> tuple[list[dict], ScanResult]:
         salary_changed=data["scan"]["salary_changed"],
         still_listed=data["scan"]["still_listed"],
         expired=[Record(**r) for r in data["scan"]["expired"]],
+        listed_not_scanned=[Record(**r) for r in data["scan"].get("listed_not_scanned", [])],
     )
     return data["today_jobs"], scan
 
@@ -158,10 +161,24 @@ def main() -> int:
         history = load_history(HISTORY_PATH)
         log.info("history records: %d", len(history))
         scan = compare(today_jobs, history, today=today)
+
+        # 今天沒撈到的職缺先別當下架——逐筆向 104 detail 確認，避免「掉出掃描覆蓋窗」
+        # 被誤標成 Expired（假下架）。只有 detail 回 404 才判真下架。
+        if scan.missing:
+            log.info("=== Phase 2b: 驗證 %d 筆今天沒撈到的職缺是否真下架 ===", len(scan.missing))
+            alive_map = asyncio.run(verify_listings_alive([r.url for r in scan.missing]))
+            scan.expired, scan.listed_not_scanned = classify_missing(
+                scan.missing, lambda u: alive_map.get(u)
+            )
+            log.info("驗證結果：真下架 %d 筆、在架未掃到（漏掃補回）%d 筆",
+                     len(scan.expired), len(scan.listed_not_scanned))
+
         log.info(
-            "scan result: new=%d refreshed=%d salary_changed=%d still_listed=%d expired=%d",
+            "scan result: new=%d refreshed=%d salary_changed=%d still_listed=%d "
+            "missing=%d expired=%d listed_not_scanned=%d",
             len(scan.new_items), len(scan.refreshed), len(scan.salary_changed),
-            len(scan.still_listed), len(scan.expired),
+            len(scan.still_listed), len(scan.missing), len(scan.expired),
+            len(scan.listed_not_scanned),
         )
 
         log.info("=== Phase 3: 寫回 history ===")
