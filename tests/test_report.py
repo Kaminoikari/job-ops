@@ -53,6 +53,35 @@ def test_expired_block_not_shown():
     assert "OldCo" not in md
 
 
+def _listed_rec(url="ln1", company="GhostCo", title="漏掃 AI PM"):
+    return Record(
+        url=url, first_seen="2026-04-01", last_seen="2026-05-13",
+        last_104_update="2026-05-10", company=company, title=title,
+        salary_raw="面議", salary_min="", location="新北市", address="",
+        status="ListedNotScanned", salary_history="", notes="{}",
+    )
+
+
+def test_listed_not_scanned_section_shown():
+    scan = ScanResult(
+        today="2026-05-13", new_items=[_job("u1")],
+        refreshed=[], salary_changed=[], still_listed=[], expired=[],
+        listed_not_scanned=[_listed_rec()],
+    )
+    md = build_markdown(scan, "2026-05-13")
+    assert "在架未掃到" in md
+    assert "GhostCo" in md
+    assert "漏掃 AI PM" in md
+    assert "ln1" in md
+
+
+def test_no_listed_not_scanned_section_when_empty():
+    scan = ScanResult(today="2026-05-13", new_items=[_job("u1")],
+                      refreshed=[], salary_changed=[], still_listed=[], expired=[])
+    md = build_markdown(scan, "2026-05-13")
+    assert "在架未掃到" not in md
+
+
 def test_subject_omits_expired():
     scan = ScanResult(today="2026-05-13", new_items=[_job("u1")],
                       refreshed=[], salary_changed=[], still_listed=[],

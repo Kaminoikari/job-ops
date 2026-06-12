@@ -117,6 +117,8 @@ def build_markdown(
     lines.append(f"- 🔄 104 更新日期變動：**{len(scan.refreshed)}** 筆")
     lines.append(f"- 💰 薪資變動：**{len(scan.salary_changed)}** 筆")
     lines.append(f"- 📌 仍在架（無變動）：{len(scan.still_listed)} 筆")
+    if scan.listed_not_scanned:
+        lines.append(f"- 📡 在架未掃到（漏掃補回）：**{len(scan.listed_not_scanned)}** 筆")
     lines.append("")
 
     # 2. 今日新上架
@@ -171,6 +173,22 @@ def build_markdown(
                 f"| {arrow} | {_fmt_salary(prev)} | {_fmt_salary(cur)} | "
                 f"{_trim(j.get('company', '—'), 30)} | {_trim(j.get('title', '—'), 50)} | "
                 f"[104]({j.get('url', '')}) |"
+            )
+        lines.append("")
+
+    # 4b. 在架未掃到（今天搜尋沒撈到，但 detail 確認 104 上仍在架的漏掃職缺）
+    if scan.listed_not_scanned:
+        lines.append(f"## 📡 在架未掃到（{len(scan.listed_not_scanned)} 筆）")
+        lines.append("")
+        lines.append("> 今天搜尋關鍵字沒撈到，但逐筆向 104 確認後仍在架——屬掃描覆蓋率漏接，非下架")
+        lines.append("")
+        lines.append("| 公司 | 職位 | 地區 | 104 更新日 | 連結 |")
+        lines.append("|---|---|---|---|---|")
+        for rec in scan.listed_not_scanned:
+            lines.append(
+                f"| {_trim(rec.company or '—', 30)} | {_trim(rec.title or '—', 50)} | "
+                f"{_trim(rec.location or '—', 20)} | {rec.last_104_update or '—'} | "
+                f"[104]({rec.url}) |"
             )
         lines.append("")
 
