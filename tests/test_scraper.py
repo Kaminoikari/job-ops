@@ -78,3 +78,30 @@ async def test_search_requires_keyword_or_jobcat():
             await scraper.search(areas=["台北市"], max_pages=1)
     finally:
         await scraper.close()
+
+
+def _alive_scraper(status: int, body: dict | None = None):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, json=body if body is not None else {})
+    return _make_scraper(handler)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,body,expected",
+    [
+        (200, {"data": {"header": {"jobName": "PM"}}}, True),   # 在架
+        (200, {"data": {}}, False),                             # 空 data = 下架
+        (404, {"error": {"code": 11201}}, False),               # 職務不存在 = 真下架
+        (429, {}, None),                                        # 被限流 = 無法確認
+        (403, {}, None),                                        # 封鎖 = 無法確認
+        (500, {}, None),                                        # 伺服器錯誤 = 無法確認
+    ],
+)
+async def test_is_listing_alive(status, body, expected):
+    scraper = _alive_scraper(status, body)
+    try:
+        result = await scraper.is_listing_alive("https://www.104.com.tw/job/abc12")
+    finally:
+        await scraper.close()
+    assert result is expected

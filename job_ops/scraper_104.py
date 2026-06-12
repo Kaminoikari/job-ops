@@ -406,9 +406,60 @@ class OneZeroFourScraper:
             log.warning("104 detail exception for %s: %s", url, e)
             return None
 
+    async def is_listing_alive(self, url: str) -> bool | None:
+        """檢查單一職缺在 104 上是否仍在架（不解析內容，只判存活）。
+
+        回傳：
+            True  → 仍在架（detail 回 200 且 data 非空）
+            False → 確認下架（404「職務不存在」，或 200 但 data 為空）
+            None  → 無法確認（429 / 403 封鎖 / 5xx / 網路錯誤）
+
+        只在「明確下架」時回 False；其餘不確定狀況一律 None，避免把暫時抓不到的
+        在架職缺誤判成下架（這正是 STATUS_LISTED_NOT_SCANNED 要解的假下架問題）。
+        """
+        job_id = _extract_job_id(url)
+        await self._limiter.wait()
+        try:
+            resp = await self._client.get(
+                DETAIL_URL.format(job_id=job_id),
+                headers=self._headers(f"https://www.104.com.tw/job/{job_id}"),
+            )
+            if resp.status_code == 404:
+                self._limiter.record_success()
+                return False  # 104 回「職務不存在」= 真下架
+            if resp.status_code != 200:
+                self._limiter.record_error(resp.status_code)
+                return None  # 429 / 403 / 5xx 等無法確認
+            self._limiter.record_success()
+            data = (resp.json() or {}).get("data") or {}
+            return bool(data)
+        except Exception as e:
+            self._limiter.record_error(None)
+            log.warning("104 liveness check exception for %s: %s", url, e)
+            return None
+
     async def close(self) -> None:
         if self._owns_client:
             await self._client.aclose()
+
+
+async def verify_listings_alive(
+    urls: list[str],
+    concurrency: int = 3,
+) -> dict[str, bool | None]:
+    """批次驗證一組職缺是否仍在架，回傳 {url: True/False/None}。"""
+    scraper = OneZeroFourScraper()
+    sem = asyncio.Semaphore(concurrency)
+
+    async def _check(url: str) -> tuple[str, bool | None]:
+        async with sem:
+            return url, await scraper.is_listing_alive(url)
+
+    try:
+        results = await asyncio.gather(*(_check(u) for u in urls))
+        return dict(results)
+    finally:
+        await scraper.close()
 
 
 def _extract_job_id(url: str) -> str:
