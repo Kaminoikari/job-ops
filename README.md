@@ -22,6 +22,19 @@
 調整過濾規則前先讀 `job_ops/role_filter.py` 與 `job_ops/ai_intent.py` 的 docstring——
 黑白名單的取捨（哪些泛詞刻意不放、為何不收緊 AI 門檻）都記在註解裡。
 
+## 下架判定（避免假下架）
+
+「今天搜尋沒撈到」≠「104 下架」——104 寬詞相關性排序 + `max_pages` 截斷常讓在架職缺
+掉出覆蓋窗。因此今天沒撈到的職缺先進 `scan.missing`，再用 `scraper_104.is_listing_alive`
+逐筆打 detail API 確認：
+
+- detail 回 **404「職務不存在」** → 真下架 → 標 `Expired`
+- detail 回 **200 有資料** → 仍在架（漏掃）→ 標 `ListedNotScanned`，日報「📡 在架未掃到」列出
+- **429 / 403 / 5xx**（無法確認）→ 一律當仍在架，寧可漏標也不假下架
+
+每日只驗「新掉出」的職缺；已是 `Expired` / `ListedNotScanned` 的不重驗。歷史假下架用
+`scripts/reverify-expired.py` 一次性回填。
+
 ## 設定
 
 1. 建立 venv 並安裝依賴：
@@ -90,7 +103,8 @@ tail -f data/logs/daily.out.log
 - `job_ops/anti_detect.py` — RateLimiter + UA 輪替
 - `job_ops/role_filter.py` — 兩階段職稱過濾（title 黑白名單 + JD 職能訊號）
 - `job_ops/ai_intent.py` — AI 關鍵字硬門檻 + 加權 lexicon 排序
-- `job_ops/history.py` — TSV 持久化 + lifecycle 計算（新上架/更新/下架）
+- `job_ops/history.py` — TSV 持久化 + lifecycle 計算（新上架/更新/下架/在架未掃到）
+- `scripts/reverify-expired.py` — 一次性回填：複驗歷史 Expired，把假下架改標 ListedNotScanned
 - `job_ops/report.py` — markdown + inline-styled HTML 報告
 - `job_ops/email_sender.py` — Gmail SMTP 寄信
 - `job_ops/config.py` — YAML + .env 載入、`passes_filters` 過濾入口
