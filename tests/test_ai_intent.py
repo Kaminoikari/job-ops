@@ -230,3 +230,40 @@ def test_matched_sorted_by_weight_descending():
     r = classify_ai_intent(_jd("使用 ai 工具，導入 agentic workflow，數據驅動決策"))
     # agentic workflow（強）應排在 data-driven（弱）之前
     assert r.matched[0] == "agentic workflow"
+
+
+# ---------- 具身智能 / 數位孿生 / sim-to-real 領域訊號 ----------
+
+
+def test_embodied_ai_is_strong_signal():
+    r = classify_ai_intent(_jd(
+        "負責具身智能基礎模型訓練與微調，實作模仿學習演算法", title="AI Research Engineer"
+    ))
+    assert r.has_ai is True
+    assert r.is_ai_pm is True
+
+
+def test_vla_robotics_stack_is_strong():
+    r = classify_ai_intent(_jd(
+        "運用 Isaac Lab 建構模擬場景，訓練 Vision-Language-Action 模型，"
+        "並以 domain randomization 生成合成資料"
+    ))
+    assert r.tier == "strong"
+    assert r.has_ai is True
+
+
+def test_digital_twin_passes_gate():
+    r = classify_ai_intent(_jd("負責數位孿生平台與 Omniverse 模擬產品規劃"))
+    assert r.has_ai is True
+
+
+def test_sim_to_real_passes_gate():
+    r = classify_ai_intent(_jd("研究 sim-to-real transfer 與機器人控制策略"))
+    assert r.has_ai is True
+
+
+def test_plain_mechanical_robot_jd_still_not_ai():
+    # 純機械/產線詞、無任何 AI 訊號 → 不通過 hard gate（未把 robotics/機器人 加進 AI lexicon）
+    r = classify_ai_intent(_jd("負責機械手臂組裝、產線維護與機構設計"))
+    assert r.has_ai is False
+    assert r.is_ai_pm is False
