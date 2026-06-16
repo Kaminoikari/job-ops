@@ -16,6 +16,17 @@ keywords:
   # 領域窄詞：撈出 title 被 AI/領域字稀釋、在 PM 寬詞下排序沉底的缺
   # （例：「AI 產品經理_先進工業電腦視覺」在「產品經理」排 865 名，在「電腦視覺」排第 9 名）
   - 電腦視覺
+  # 領域窄詞：digital twin / embodied AI / sim-to-real（每個各自獨立撈取，
+  # 中英文都列因 104 keyword 為字面比對；AI 硬門檻 + PM 職稱過濾會自動收斂成 PM 缺）
+  - 數位孿生
+  - 數位分身
+  - Digital Twin
+  - 具身智能
+  - 具身智慧
+  - Embodied AI
+  - Sim-to-Real
+  - Sim2Real
+  - Physical AI
 
 # 104 職務類別代碼（職類精準涵蓋，撈 title 不含關鍵字但職類掛 PM 的缺）
 # 代碼查 https://static.104.com.tw/category-tool/json/JobCat.json
