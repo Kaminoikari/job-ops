@@ -178,6 +178,32 @@ def test_pm_adjacent_roles_kept(title):
     assert is_target_role(title) is True
 
 
+# ---------- 產品主管職（產品總監 / 產品長 / CPO）：須靠 title 白名單保留 ----------
+# 這幾個是 ai_intent.ROLE_SIGNALS 明列的高權重目標角色，但主管缺的 JD 常只寫
+# 「帶領團隊、對產品方向負責」，沒有 roadmap / PRD 這類標準 PM 詞彙。若不進
+# title 白名單，會在 confirm_target_role 的 JD 階段被誤砍（與 Product Builder 同款陷阱）。
+
+PRODUCT_LEADERSHIP_TITLES = [
+    "產品總監",
+    "產品總監 Product Director",
+    "產品長 CPO",
+    "Chief Product Officer",
+]
+
+TERSE_LEADERSHIP_JD = "帶領產品團隊，負責公司整體產品方向與跨部門協作，向 CEO 匯報。"
+
+
+@pytest.mark.parametrize("title", PRODUCT_LEADERSHIP_TITLES)
+def test_product_leadership_titles_survive_jd_stage(title):
+    assert is_target_role(title) is True
+    assert confirm_target_role(title, TERSE_LEADERSHIP_JD) is True
+
+
+def test_product_leadership_whitelist_does_not_swallow_unrelated_long_term_wording():
+    """「產品長期…」內含「產品長」三字，不可因此拿到白名單豁免而繞過黑名單。"""
+    assert is_target_role("產品長期供應合約業務專員") is False
+
+
 # ---------- PM 縮寫邊界：中文字 / 底線旁的 PM 也要命中 ----------
 # Python re 的 \b 把中文與底線都當 word char，「技術PM」「PM_新竹」會比對失敗，
 # 這些是真 PM 缺，須用自訂邊界救回。

@@ -25,7 +25,15 @@ _PM_WHITELIST = (
     "Product Management",
     "Product Builder",
     "產品負責人",
+    # 產品主管職（ai_intent.ROLE_SIGNALS 明列的高權重目標角色）。主管缺的 JD 常只寫
+    # 「帶領團隊、對產品方向負責」，沒有 roadmap / PRD 這類詞，不放白名單會在
+    # confirm_target_role 的 JD 階段被誤砍——與 Product Builder 同款陷阱。
+    "產品總監",
+    "Chief Product Officer",
 )
+
+# 「產品長」＝CPO，但「產品長期…」也含這三字，後接「期」時不是職稱，不得豁免。
+_PM_CPO = re.compile(r"產品長(?!期)")
 
 # 「產品管理/產品企劃」救回「產品管理專員」這類入門 PM，但後接組織單位字
 # （處/部/組/室/課/中心）時是部門名而非職能，不得觸發豁免，
@@ -135,6 +143,7 @@ def _is_title_whitelisted(title: str) -> bool:
     return (
         any(w in title for w in _PM_WHITELIST)
         or _PM_FUNCTION.search(title) is not None
+        or _PM_CPO.search(title) is not None
         or _PM_ABBR.search(title) is not None
     )
 
