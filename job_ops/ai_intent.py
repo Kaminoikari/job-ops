@@ -1,10 +1,11 @@
-"""AI 意圖偵測 + AI 關鍵字納入門檻。
+"""AI 意圖偵測：納入門檻的其中一條通道 + 排序權重。
 
 兩個職責：
-  1. has_ai 門檻（納入報告的硬條件）：JD / title 必須出現至少一個 AI 相關關鍵字，
-     否則整筆剔除，連抓都不抓進來。只找跟 AI 或 AI 供應鏈相關的職缺。
+  1. has_ai：JD / title 是否出現至少一個 AI 相關關鍵字。這是納入日報的**其中一條**
+     通道，不是唯一條件——`domain_filter.passes_domain_gate` 另外接受「軟體/SaaS
+     領域訊號」，好讓 JD 通篇沒提 AI 的標準 SaaS PM 缺也能進來。
   2. tier / score（排序用）：用加權 lexicon + 動詞鄰近度，把「角色本身做 AI」的
-     職缺排在「公司碰巧是 AI 公司」之前。
+     職缺排在「公司碰巧是 AI 公司」之前。門檻放寬後，AI 訊號強弱主要體現在這裡。
 
 加權 lexicon 設計：
   - 強 / 中 / 弱 AI 訊號各有不同權重，"ai" 這種泛用詞權重最低（但仍滿足 has_ai 門檻）
@@ -139,8 +140,8 @@ ROLE_SIGNALS: dict[str, float] = {
 }
 
 # SUPPLY_CHAIN：AI 供應鏈 / 硬體「優先」訊號（gpu、算力 等）。只用來加分排序，
-# 讓 AI 供應鏈職缺排前；本身不算 AI 訊號、不滿足 has_ai 門檻。真正的 hard gate
-# 永遠是 JD 本身有沒有 AI signal —— 一般網路公司只要 JD 提到 AI 一樣可接受。
+# 讓 AI 供應鏈職缺排前；本身不算 AI 訊號、不滿足 has_ai。一般網路公司只要 JD
+# 提到 AI 就滿足 has_ai 這條通道（另一條通道是 domain_filter 的軟體/SaaS 訊號）。
 SUPPLY_CHAIN_SIGNALS: dict[str, float] = {
     "gpu": 2.0,
     "cuda": 2.0,
@@ -205,7 +206,7 @@ ALL_LEXICONS = AI_LEXICONS + (ROLE_SIGNALS, SUPPLY_CHAIN_SIGNALS)
 class AIIntentResult:
     """單筆職缺的 AI 意圖判定結果。"""
     is_ai_pm: bool
-    has_ai: bool                       # 是否出現任一 AI 關鍵字（納入報告的硬門檻）
+    has_ai: bool                       # 是否出現任一 AI 關鍵字（納入門檻的其中一條通道）
     score: float                       # JD/title 的 AI 訊號分數（決定 tier）
     priority: float                    # score + AI native/供應鏈 產業公司加分（排序用）
     tier: str                          # strong / moderate / weak / none

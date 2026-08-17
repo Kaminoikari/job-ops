@@ -19,8 +19,10 @@ tier 為「無」、分數 0，自然沉在最後。
     流程詞每個 PM 缺都會寫，硬體 PM 也有 roadmap，放進來等於門檻失效。
   - 刻意排除「平台 / platform / 系統整合」。這三個詞硬體缺也大量使用，而實測
     它們只多帶進 10 筆（+3.7%），邊際效益不足以換取誤放硬體產品線 PM 的代價。
-  - CORE 詞庫對那 272 筆的覆蓋率為 81.2%；未覆蓋的部分本來就走 AI 通道通過，
-    不構成損失。
+  - 中文詞走純子字串比對（無詞邊界），所以短中文詞要檢查有沒有被包在其他詞裡。
+    「線上」因為會命中「產線上／生產線上」而被排除。
+  - 詞庫對那 272 筆的覆蓋率為 78.3%；未覆蓋的部分本來就走 AI 通道通過，
+    不構成損失（實測新門檻是舊門檻的嚴格超集，272 筆全數仍通過）。
 """
 from __future__ import annotations
 
@@ -41,7 +43,8 @@ SOFTWARE_SIGNALS: tuple[str, ...] = (
     "digital product",
     "訂閱制",
     "subscription",
-    "線上",
+    # 刻意不收「線上」：中文無詞邊界，「產線上／生產線上」內含這兩字，
+    # 會給製造業產線 PM 一張完全沒有軟體內容的通行證。
     # 技術構件
     "api",
     "sdk",
@@ -81,8 +84,18 @@ SOFTWARE_SIGNALS: tuple[str, ...] = (
 
 
 def has_software_signal(job: dict) -> bool:
-    """job 的 title / JD 是否出現任一軟體/SaaS 領域訊號。"""
-    text = ((job.get("title") or "") + "\n" + (job.get("jd") or "")).lower()
+    """job 的 title / JD 是否出現任一軟體/SaaS 領域訊號。
+
+    會先把福利文案從 JD 裡拿掉再比對：scraper_104.detail 把「福利：…」接在 jd
+    後面，而福利段落常提到員工用的 app（例：永悅健康寫「專屬的職場健康服務 app」）。
+    那是公司給員工的福利，不是這個職缺要做的產品，拿它當領域訊號會讓製造業
+    產品線 PM 靠福利文案矇混通過。
+    """
+    jd = job.get("jd") or ""
+    benefits = job.get("benefits") or ""
+    if benefits:
+        jd = jd.replace(benefits, " ")
+    text = ((job.get("title") or "") + "\n" + jd).lower()
     if not text.strip():
         return False
     return any(phrase_present(text, p) for p in SOFTWARE_SIGNALS)

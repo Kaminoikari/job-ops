@@ -58,6 +58,25 @@ def test_short_ascii_terms_respect_word_boundaries():
     assert has_software_signal(job) is False
 
 
+def test_production_line_wording_is_not_mistaken_for_online():
+    """中文無詞邊界：「產線上 / 生產線上」內含「線上」二字。若詞庫收「線上」，
+    製造業產線 PM 會拿到一張完全沒有軟體內容的通行證。"""
+    for jd in ("負責產線上的良率追蹤與模具開發", "生產線上異常處理", "產線上線時程管理"):
+        assert has_software_signal(_job("產品經理", jd)) is False, jd
+
+
+def test_representative_domain_terms_each_pass():
+    """詞庫是資料不是邏輯，抽樣釘住代表詞，避免整批被刪掉還全綠。"""
+    for jd in (
+        "負責 SaaS 訂閱制產品的定價與包裝",
+        "規劃開放 API 與 SDK 的開發者體驗",
+        "負責電商網站前端改版與轉換率優化",
+        "主導雲端服務的資料庫遷移與後端重構",
+        "負責 App 的 UX 流程設計與 iOS 改版",
+    ):
+        assert has_software_signal(_job("產品經理", jd)) is True, jd
+
+
 def test_ambiguous_platform_wording_alone_does_not_pass():
     """「平台」「系統整合」單獨出現不算軟體訊號——硬體平台缺會誤入（實測邊際效益僅 3.7%）。"""
     job = _job("產品經理", "負責硬體平台與系統整合專案之進度追蹤與成本管理。")

@@ -38,8 +38,12 @@ def _config(tmp_path: Path, body: str) -> Path:
 
 
 def test_domain_gate_keeps_saas_pm_without_ai_signal():
-    """pipeline 的納入門檻若退回「只看 has_ai」，通篇沒提 AI 的 SaaS PM 缺會被
-    整筆剔除，而 domain_filter 自己的單元測試仍然全綠——這條綁住那段接線。"""
+    """綁住 apply_domain_gate 的篩選行為：若它退回「只看 has_ai」，通篇沒提 AI 的
+    SaaS PM 缺會被整筆剔除。
+
+    範圍限制：這條只驅動 apply_domain_gate 本身，沒有驅動 main() 的呼叫點
+    （main() 需要真實爬蟲與 email，測試不跑它）。
+    """
     run_daily = _load_run_daily()
     saas_pm = {
         "url": "https://www.104.com.tw/job/saas1",
@@ -65,6 +69,26 @@ def test_domain_gate_keeps_saas_pm_without_ai_signal():
     assert "https://www.104.com.tw/job/saas1" in kept_urls
     assert "https://www.104.com.tw/job/aipm1" in kept_urls
     assert "https://www.104.com.tw/job/hw1" not in kept_urls
+
+
+def test_domain_gate_bucket_counts_are_reported(caplog):
+    """三桶統計是之後調詞庫的唯一依據（重跑掃描會被 104 限流），數字錯了就白記。
+    僅 AI + 僅軟體 + 兩者皆有 必須等於保留數。"""
+    run_daily = _load_run_daily()
+    jobs = [
+        {"title": "AI 產品經理", "jd": "負責大型語言模型應用的產品規劃。"},        # 僅 AI
+        {"title": "產品經理", "jd": "負責 SaaS 軟體產品的規劃。"},                # 僅軟體
+        {"title": "AI 產品經理", "jd": "負責 SaaS 軟體產品的大型語言模型應用。"},  # 兩者
+        {"title": "產品經理", "jd": "負責模具開發進度與料號成本管理。"},          # 皆無
+    ]
+    with caplog.at_level(logging.INFO):
+        kept = run_daily.apply_domain_gate(jobs, logging.getLogger("gate-test"))
+
+    assert len(kept) == 3
+    msg = caplog.text
+    assert "僅 AI 訊號 1" in msg, msg
+    assert "僅軟體訊號 1" in msg, msg
+    assert "兩者皆有 1" in msg, msg
 
 
 @pytest.mark.parametrize("yaml_value,expected", [("3", 3), ("0", 0), ("null", None)])

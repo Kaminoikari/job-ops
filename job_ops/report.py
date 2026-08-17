@@ -92,7 +92,8 @@ def build_markdown(
     full=False (預設、日常模式): 只顯示變化（新上架／更新／薪資變動）
     full=True: 加上「全部活躍職缺 — 多排序視角」附錄
 
-    所有職缺都已通過 AI 關鍵字篩選；已下架區塊與詳細 JD 區塊都不再顯示（職缺常被
+    所有職缺都已通過領域門檻（AI 訊號或軟體/SaaS 訊號，見 domain_filter）；
+    已下架區塊與詳細 JD 區塊都不再顯示（職缺常被
     下架再上架刷更新日期，已下架資訊無參考價值；詳細資訊過於冗長）。
     排序：AI native / AI 供應鏈 產業或公司優先（ai_intent.priority），其次月薪。
     """
@@ -111,7 +112,7 @@ def build_markdown(
     lines.append("")
     lines.append("## 📊 摘要")
     lines.append("")
-    lines.append(f"- 今日總抓取：**{scan.total_today()}** 筆（全數通過 AI 關鍵字篩選）")
+    lines.append(f"- 今日總抓取：**{scan.total_today()}** 筆（全數通過領域門檻：AI 或 軟體/SaaS）")
     lines.append(f"- 🆕 今日新上架：**{len(scan.new_items)}** 筆（含面議 {len(new_negotiable)} 筆）")
     lines.append(f"- 🤖 其中強訊號 AI PM：**{new_ai_count}** 筆（JD 意圖偵測判定，已排前）")
     lines.append(f"- 🔄 104 更新日期變動：**{len(scan.refreshed)}** 筆")

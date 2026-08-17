@@ -128,7 +128,8 @@ tail -f data/logs/daily.out.log
 - `job_ops/scraper_104.py` — 104 search + detail API 爬蟲
 - `job_ops/anti_detect.py` — RateLimiter + UA 輪替
 - `job_ops/role_filter.py` — 兩階段職稱過濾（title 黑白名單 + JD 職能訊號）
-- `job_ops/ai_intent.py` — AI 關鍵字硬門檻 + 加權 lexicon 排序
+- `job_ops/ai_intent.py` — AI 訊號偵測（門檻通道之一）+ 加權 lexicon 排序
+- `job_ops/domain_filter.py` — 納入門檻：AI 訊號 或 軟體/SaaS 領域訊號
 - `job_ops/history.py` — TSV 持久化 + lifecycle 計算（新上架/更新/下架/在架未掃到）
 - `scripts/reverify-expired.py` — 一次性回填：複驗歷史 Expired，把假下架改標 ListedNotScanned
 - `job_ops/report.py` — markdown + inline-styled HTML 報告
