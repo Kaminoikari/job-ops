@@ -526,14 +526,23 @@ async def scrape_all(
             results = await scraper.search(kw, areas, max_pages=max_pages, from_date=from_date)
             await _collect(results, kw)
         for jc in jobcats or []:
-            results = await scraper.search(
-                areas=areas,
-                max_pages=max_pages,
-                from_date=from_date,
-                jobcat=jc,
-                recency_days=jobcat_recency_days,
-            )
-            await _collect(results, f"jobcat:{jc}")
+            # 兩趟掃描，缺一不可：
+            #   無時間窗 — 保留「久未更新但仍在架」的缺（jobcat 通道原本的用途）
+            #   有時間窗 — 把近期更新的缺從相關性後段拉進前幾頁
+            # 兩趟的結果由 _collect 的 seen 去重，重疊部分不會重複抓 detail。
+            windows: list[int | None] = [None]
+            if jobcat_recency_days is not None:
+                windows.append(jobcat_recency_days)
+            for window in windows:
+                results = await scraper.search(
+                    areas=areas,
+                    max_pages=max_pages,
+                    from_date=from_date,
+                    jobcat=jc,
+                    recency_days=window,
+                )
+                label = f"jobcat:{jc}" if window is None else f"jobcat:{jc}(近{window}天)"
+                await _collect(results, label)
 
         log.info("Total unique URLs across keywords: %d", len(all_search))
 

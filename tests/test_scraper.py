@@ -8,6 +8,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from job_ops import scraper_104 as scraper_module
 from job_ops.scraper_104 import OneZeroFourScraper
 
 
@@ -91,6 +92,85 @@ async def test_search_recency_days_sets_isnew_param():
         await scraper.close()
 
     assert captured[0]["isnew"] == "3"
+
+
+@pytest.mark.asyncio
+async def test_search_recency_days_zero_still_sends_isnew():
+    """0 是合法值（僅今日）但為 falsy；用真值判斷會讓它靜默失去時間窗。"""
+    captured: list[dict] = []
+    scraper = _make_scraper(_one_job_then_empty(captured))
+    try:
+        await scraper.search(areas=["台北市"], max_pages=1, jobcat="2004003009", recency_days=0)
+    finally:
+        await scraper.close()
+
+    assert captured[0]["isnew"] == "0"
+
+
+@pytest.mark.asyncio
+async def test_scrape_all_applies_recency_to_jobcat_queries_only(monkeypatch):
+    """時間窗只套在 jobcat 查詢；keyword 查詢必須維持不受限的廣度掃描。"""
+    calls: list[dict] = []
+
+    class _RecordingScraper:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def search(self, keyword="", areas=None, max_pages=5,
+                         from_date=None, jobcat=None, recency_days=None):
+            calls.append({"keyword": keyword, "jobcat": jobcat, "recency_days": recency_days})
+            return []
+
+        async def detail(self, url):
+            return None
+
+        async def close(self):
+            return None
+
+    monkeypatch.setattr(scraper_module, "OneZeroFourScraper", _RecordingScraper)
+    await scraper_module.scrape_all(
+        keywords=["產品經理"], areas=["台北市"],
+        jobcats=["2004003009"], jobcat_recency_days=3,
+    )
+
+    keyword_calls = [c for c in calls if c["keyword"]]
+    jobcat_calls = [c for c in calls if c["jobcat"]]
+    assert keyword_calls
+    assert all(c["recency_days"] is None for c in keyword_calls)
+
+    # 每個 jobcat 掃兩趟：一趟不設時間窗（保留原本「久未更新但仍在架」的覆蓋），
+    # 一趟套時間窗（把近期更新的缺從相關性後段拉進前幾頁）。少任何一趟都是覆蓋損失。
+    windows = [c["recency_days"] for c in jobcat_calls if c["jobcat"] == "2004003009"]
+    assert len(windows) == 2
+    assert None in windows and 3 in windows
+
+
+@pytest.mark.asyncio
+async def test_scrape_all_jobcat_single_sweep_when_no_recency_configured(monkeypatch):
+    """沒設定時間窗時不該平白多掃一趟。"""
+    calls: list[dict] = []
+
+    class _RecordingScraper:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def search(self, keyword="", areas=None, max_pages=5,
+                         from_date=None, jobcat=None, recency_days=None):
+            calls.append({"jobcat": jobcat, "recency_days": recency_days})
+            return []
+
+        async def detail(self, url):
+            return None
+
+        async def close(self):
+            return None
+
+    monkeypatch.setattr(scraper_module, "OneZeroFourScraper", _RecordingScraper)
+    await scraper_module.scrape_all(
+        keywords=[], areas=["台北市"], jobcats=["2004003009"], jobcat_recency_days=None,
+    )
+
+    assert [c["recency_days"] for c in calls if c["jobcat"]] == [None]
 
 
 @pytest.mark.asyncio

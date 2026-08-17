@@ -9,6 +9,7 @@ import yaml
 from dotenv import load_dotenv
 
 from job_ops.role_filter import confirm_target_role
+from job_ops.scraper_104 import VALID_RECENCY_DAYS
 
 
 @dataclass
@@ -55,17 +56,24 @@ class EmailEnv:
 def load_search_config(path: str | Path) -> SearchConfig:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     filt = raw.get("filters") or {}
+
+    # 在這裡就擋掉不合法的 recency 值。若拖到 scraper 送出請求才發現，前面數分鐘的
+    # keyword 查詢結果會隨著例外一起丟掉（scrape_all 沒有保留部分結果的路徑）。
+    recency = raw.get("jobcat_recency_days")
+    if recency is not None:
+        recency = int(recency)
+        if recency not in VALID_RECENCY_DAYS:
+            raise ValueError(
+                f"jobcat_recency_days={recency} 不是 104 接受的值；"
+                f"只能是 {sorted(VALID_RECENCY_DAYS)} 其中之一"
+            )
     return SearchConfig(
         keywords=list(raw.get("keywords") or []),
         areas=list(raw.get("areas") or []),
         jobcats=[str(c) for c in (raw.get("jobcats") or [])],
         max_pages_per_keyword=int(raw.get("max_pages_per_keyword", 5)),
         from_date=(raw.get("from_date") or None),
-        jobcat_recency_days=(
-            int(raw["jobcat_recency_days"])
-            if raw.get("jobcat_recency_days") is not None
-            else None
-        ),
+        jobcat_recency_days=recency,
         filters=FilterConfig(
             min_salary_monthly=int(filt.get("min_salary_monthly", 0) or 0),
             include_negotiable_salary=bool(filt.get("include_negotiable_salary", True)),
