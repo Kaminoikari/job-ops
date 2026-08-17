@@ -23,6 +23,12 @@ log = logging.getLogger(__name__)
 SEARCH_URL = "https://www.104.com.tw/jobs/search/api/jobs"
 DETAIL_URL = "https://www.104.com.tw/job/ajax/content/{job_id}"
 
+# 104 search API 的「最近更新」參數 isnew 只接受這幾個值（實測 2026-08-17：
+# 0/3/7/14/30 回 200，1/2/5/10/21/60/90 一律回 400）。0 = 僅今日。
+# 送出不合法的值會被 search() 的 except 吞成「這個 query 0 筆」，整個 jobcat
+# 掃描會靜默消失，所以在送出前就擋下來。
+VALID_RECENCY_DAYS = frozenset({0, 3, 7, 14, 30})
+
 # 完整地區代碼（取自 https://static.104.com.tw/category-tool/json/Area.json）
 AREA_CODES: dict[str, str] = {
     # 台灣縣市
@@ -225,23 +231,38 @@ class OneZeroFourScraper:
         max_pages: int = 5,
         from_date: str | None = None,
         jobcat: str | None = None,
+        recency_days: int | None = None,
     ) -> list[dict]:
         """搜尋職缺，回傳 [{url, company, title, appear_date}, ...]。
 
         keyword：全文關鍵字搜尋（寬詞，相關性排序，紅海大詞易把職缺排到很後面）。
         jobcat：104 職務類別代碼（comma-separated）。職類精準涵蓋——可撈到 title 不含
                 關鍵字、但職類正確的職缺。keyword 與 jobcat 至少需給一個。
-        from_date 格式 YYYY-MM-DD；翻頁時若整頁 appearDate 都早於此日期就停止
-        （104 預設 order=12 是按更新日期降序排列）。
+        recency_days：只要近 N 天有更新的職缺（送 104 的 isnew 參數，伺服器端過濾）。
+                合法值見 VALID_RECENCY_DAYS。用來壓縮結果總數，讓固定的 max_pages
+                在同一份結果裡涵蓋到更高比例——jobcat 這種動輒五千筆的查詢必需。
+        from_date 格式 YYYY-MM-DD；只保留 appearDate >= 此日期的職缺。
+
+        排序注意：104 這支 API 不提供「更新日降序」。實測 order=1~16 回傳的結果
+        幾乎相同且 appearDate 都非單調遞減，等於一律吃相關性排序。因此**不能**用
+        「這頁都是舊職缺就停止翻頁」來提早結束——後面幾頁仍可能夾著新職缺。
+        要縮小掃描範圍請用 recency_days 讓 104 在伺服器端先過濾。
         """
         if not keyword and not jobcat:
             raise ValueError("search() 需至少提供 keyword 或 jobcat 其一")
+        if recency_days is not None and recency_days not in VALID_RECENCY_DAYS:
+            raise ValueError(
+                f"recency_days={recency_days} 不是 104 接受的值；"
+                f"只能是 {sorted(VALID_RECENCY_DAYS)} 其中之一"
+            )
         from_date_compact = from_date.replace("-", "") if from_date else None
         params: dict = {"order": 12, "asc": 0, "mode": "s"}
         if keyword:
             params["keyword"] = keyword
         if jobcat:
             params["jobcat"] = jobcat
+        if recency_days is not None:
+            params["isnew"] = recency_days
         if areas:
             params["area"] = resolve_area_codes(areas)
         label = keyword or f"jobcat:{jobcat}"
@@ -303,12 +324,6 @@ class OneZeroFourScraper:
                     "104 search page=%d query=%s count=%d kept=%d min_appear=%s",
                     page, label, len(jobs), added_this_page, page_min_date,
                 )
-
-                # Early-stop：若整頁最早的 appearDate 已經 < from_date，後續頁更舊不用翻
-                if from_date_compact and page_min_date and page_min_date < from_date_compact:
-                    log.info("104 search early-stop at page=%d (page_min=%s < from=%s)",
-                             page, page_min_date, from_date_compact)
-                    break
             except httpx.HTTPStatusError as e:
                 self._limiter.record_error(e.response.status_code)
                 log.warning("104 search error: %s", e)
@@ -480,13 +495,19 @@ async def scrape_all(
     sample_dump_path: Path | None = None,
     from_date: str | None = None,
     jobcats: list[str] | None = None,
+    jobcat_recency_days: int | None = None,
 ) -> list[dict]:
     """對每個 keyword 與 jobcat 跑 search + detail，回傳合併去重後的完整 dict list。
 
-    keywords：全文關鍵字（寬詞 + 領域窄詞）。
+    keywords：全文關鍵字（寬詞 + 領域窄詞）。窄詞在相關性排序下把目標職缺推到前幾頁，
+        是對抗 max_pages 截斷的主力；寬詞則負責不設限的廣度掃描。
     jobcats：104 職務類別代碼清單，職類精準涵蓋（撈 title 不含關鍵字但職類正確的缺）。
-    from_date: YYYY-MM-DD；只保留 appearDate >= from_date 的職缺
-    （104 search 預設按更新日降序，會做翻頁 early-stop 加速）。
+    jobcat_recency_days：只對 jobcat 查詢套用的「近 N 天更新」窗口。職類查詢的結果
+        總數是數千筆（例如「產品經理」職類在台北/新北/新竹/海外共 5,623 筆），固定
+        max_pages 只能覆蓋前 2~3%，冷門職缺永遠沉在後面。加上這個窗口後同一個
+        max_pages 覆蓋的是「近 N 天更新」這個小很多的母體。keyword 查詢刻意不套用，
+        保留一份不受時間窗限制的廣度掃描。
+    from_date: YYYY-MM-DD；只保留 appearDate >= from_date 的職缺。
     """
     scraper = OneZeroFourScraper(sample_dump_path=sample_dump_path)
     try:
@@ -506,7 +527,11 @@ async def scrape_all(
             await _collect(results, kw)
         for jc in jobcats or []:
             results = await scraper.search(
-                areas=areas, max_pages=max_pages, from_date=from_date, jobcat=jc
+                areas=areas,
+                max_pages=max_pages,
+                from_date=from_date,
+                jobcat=jc,
+                recency_days=jobcat_recency_days,
             )
             await _collect(results, f"jobcat:{jc}")
 

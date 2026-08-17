@@ -80,6 +80,83 @@ async def test_search_requires_keyword_or_jobcat():
         await scraper.close()
 
 
+@pytest.mark.asyncio
+async def test_search_recency_days_sets_isnew_param():
+    """recency_days 會轉成 104 的 isnew 參數（伺服器端只回近 N 天更新的職缺）。"""
+    captured: list[dict] = []
+    scraper = _make_scraper(_one_job_then_empty(captured))
+    try:
+        await scraper.search(areas=["台北市"], max_pages=1, jobcat="2004003009", recency_days=3)
+    finally:
+        await scraper.close()
+
+    assert captured[0]["isnew"] == "3"
+
+
+@pytest.mark.asyncio
+async def test_search_omits_isnew_when_recency_days_none():
+    captured: list[dict] = []
+    scraper = _make_scraper(_one_job_then_empty(captured))
+    try:
+        await scraper.search("產品經理", areas=["台北市"], max_pages=1)
+    finally:
+        await scraper.close()
+
+    assert "isnew" not in captured[0]
+
+
+@pytest.mark.asyncio
+async def test_search_rejects_recency_days_104_does_not_accept():
+    """104 只吃 isnew ∈ {0,3,7,14,30}；其餘值回 400，會被 except 吞掉導致整個
+    jobcat 掃描靜默變成 0 筆。這裡要求提前 fail-loud。"""
+    scraper = _make_scraper(_one_job_then_empty([]))
+    try:
+        with pytest.raises(ValueError):
+            await scraper.search(areas=["台北市"], max_pages=1, jobcat="2004003009", recency_days=5)
+    finally:
+        await scraper.close()
+
+
+def _stale_first_page_then_fresh(captured: list[dict]):
+    """page 1 全是舊職缺、page 2 才有新職缺的 handler。
+
+    104 的排序不是更新日降序（實測 order 1~16 都不是），所以「整頁都舊就停止翻頁」
+    會把後面頁數裡的新職缺整批丟掉。
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        params = dict(request.url.params)
+        captured.append(params)
+        page = params.get("page")
+        if page == "1":
+            data = [{"link": {"job": "//www.104.com.tw/job/old01"},
+                     "custName": "舊公司", "jobName": "PM", "appearDate": "20260101"}]
+        elif page == "2":
+            data = [{"link": {"job": "//www.104.com.tw/job/new02"},
+                     "custName": "新公司", "jobName": "PM", "appearDate": "20260815"}]
+        else:
+            data = []
+        return httpx.Response(200, json={"data": data})
+
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_search_does_not_early_stop_on_a_stale_page():
+    captured: list[dict] = []
+    scraper = _make_scraper(_stale_first_page_then_fresh(captured))
+    try:
+        results = await scraper.search(
+            "產品經理", areas=["台北市"], max_pages=3, from_date="2026-08-01"
+        )
+    finally:
+        await scraper.close()
+
+    urls = [r["url"] for r in results]
+    assert "https://www.104.com.tw/job/new02" in urls, "第 2 頁的新職缺被 early-stop 丟掉了"
+    assert "https://www.104.com.tw/job/old01" not in urls  # from_date 過濾仍生效
+
+
 def _alive_scraper(status: int, body: dict | None = None):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(status, json=body if body is not None else {})

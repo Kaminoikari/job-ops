@@ -26,6 +26,9 @@ class SearchConfig:
     jobcats: list[str] = field(default_factory=list)  # 104 職務類別代碼，職類精準涵蓋
     max_pages_per_keyword: int = 5
     from_date: str | None = None         # YYYY-MM-DD；只保留 appearDate >= 此日期
+    # 只對 jobcat 查詢套用的「近 N 天更新」窗口（104 isnew 參數）。
+    # 合法值見 scraper_104.VALID_RECENCY_DAYS；None = 不限時間。
+    jobcat_recency_days: int | None = None
     filters: FilterConfig = field(default_factory=FilterConfig)
 
 
@@ -58,6 +61,11 @@ def load_search_config(path: str | Path) -> SearchConfig:
         jobcats=[str(c) for c in (raw.get("jobcats") or [])],
         max_pages_per_keyword=int(raw.get("max_pages_per_keyword", 5)),
         from_date=(raw.get("from_date") or None),
+        jobcat_recency_days=(
+            int(raw["jobcat_recency_days"])
+            if raw.get("jobcat_recency_days") is not None
+            else None
+        ),
         filters=FilterConfig(
             min_salary_monthly=int(filt.get("min_salary_monthly", 0) or 0),
             include_negotiable_salary=bool(filt.get("include_negotiable_salary", True)),

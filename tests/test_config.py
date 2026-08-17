@@ -32,6 +32,24 @@ areas: [台北市]
     assert cfg.jobcats == []
 
 
+def test_jobcat_recency_days_parsed(tmp_path: Path):
+    cfg = load_search_config(_write(tmp_path, """
+keywords: [產品經理]
+areas: [台北市]
+jobcats: ["2004003009"]
+jobcat_recency_days: 3
+"""))
+    assert cfg.jobcat_recency_days == 3
+
+
+def test_jobcat_recency_days_defaults_to_none_when_absent(tmp_path: Path):
+    cfg = load_search_config(_write(tmp_path, """
+keywords: [產品經理]
+areas: [台北市]
+"""))
+    assert cfg.jobcat_recency_days is None
+
+
 # ---------- passes_filters × 職稱過濾（雙層保險）----------
 
 
