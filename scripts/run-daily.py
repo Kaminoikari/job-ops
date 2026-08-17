@@ -29,8 +29,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from job_ops.ai_intent import annotate_ai_intent
+from job_ops.ai_intent import annotate_ai_intent, has_ai_signal
 from job_ops.config import load_email_env, load_search_config, passes_filters
+from job_ops.domain_filter import has_software_signal, passes_domain_gate
 from job_ops.email_sender import send_daily_email
 from job_ops.history import (
     Record,
@@ -99,6 +100,27 @@ def _load_cached_scan() -> tuple[list[dict], ScanResult]:
     return data["today_jobs"], scan
 
 
+def apply_domain_gate(jobs: list[dict], log: logging.Logger) -> list[dict]:
+    """納入日報的領域門檻：AI 訊號或軟體/SaaS 訊號擇一即可。
+
+    只要求其一，是因為「標準的 SaaS 產品經理」這種 JD 通篇沒提 AI 的缺也是
+    目標職缺；舊的 AI 單一硬門檻會把它整筆剔除。詞庫取捨見 job_ops/domain_filter.py。
+
+    三個桶分開統計後寫進 log，之後要調整詞庫時才有實際數字可依據，
+    不必再為了估算影響去重跑一次掃描（104 會限流）。
+    """
+    before = len(jobs)
+    ai_only = sum(1 for j in jobs if has_ai_signal(j) and not has_software_signal(j))
+    sw_only = sum(1 for j in jobs if has_software_signal(j) and not has_ai_signal(j))
+    kept = [j for j in jobs if passes_domain_gate(j)]
+    log.info(
+        "領域門檻：%d → %d 筆（剔除 %d 筆）｜僅 AI 訊號 %d、僅軟體訊號 %d、兩者皆有 %d",
+        before, len(kept), before - len(kept),
+        ai_only, sw_only, len(kept) - ai_only - sw_only,
+    )
+    return kept
+
+
 async def _do_scrape(cfg) -> list[dict]:
     return await scrape_all(
         keywords=cfg.keywords,
@@ -153,11 +175,7 @@ def main() -> int:
         # AI 意圖標記：在 compare 前標好，scan 各 list 沿用同批 dict 即帶有 ai_intent
         annotate_ai_intent(today_jobs)
 
-        # AI 關鍵字硬門檻：JD / title 沒有任何 AI 訊號的職缺一律剔除，連抓都不抓進來
-        before_ai = len(today_jobs)
-        today_jobs = [j for j in today_jobs if (j.get("ai_intent") or {}).get("has_ai")]
-        log.info("AI 關鍵字篩選：%d → %d 筆（剔除無 AI 訊號 %d 筆）",
-                 before_ai, len(today_jobs), before_ai - len(today_jobs))
+        today_jobs = apply_domain_gate(today_jobs, log)
 
         log.info("=== Phase 2: 比對 history ===")
         history = load_history(HISTORY_PATH)

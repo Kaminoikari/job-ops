@@ -249,6 +249,15 @@ def _phrase_present(text: str, phrase: str) -> bool:
     return False
 
 
+def phrase_present(text: str, phrase: str) -> bool:
+    """公開版的詞彙比對，給其他詞庫模組（domain_filter）共用同一套邊界規則。
+
+    短的純 ASCII 詞若用樸素子字串比對會大量誤中（"ui" 命中 building、
+    "app" 命中 happening），所以任何詞庫都必須走這裡而不是 `in`。
+    """
+    return _phrase_present(text, phrase)
+
+
 def _has_verb_nearby(text: str, phrase: str) -> bool:
     """phrase 的任一出現位置，前後 VERB_WINDOW 字元內是否有 action verb。"""
     for idx in _iter_positions(text, phrase):
