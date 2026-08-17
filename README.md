@@ -15,12 +15,38 @@
 2. **職稱過濾・JD 階段**（`role_filter.confirm_target_role`，detail 抓完後跑）
    - title 模糊（非白名單、也沒中黑名單，如 `Asset Manager`、`AI Server AM`）的缺改看 JD 內容
    - JD 須出現產品/專案管理職能訊號詞（產品規劃 / roadmap / PRD / 專案管理…）才保留
-3. **AI 關鍵字硬門檻**（`ai_intent.has_ai`）
-   - JD / title 必須出現至少一個 AI 關鍵字，否則整筆剔除
-   - 另以加權 lexicon 計算 tier / score，把「角色本身做 AI」的缺排在「公司碰巧是 AI 公司」之前
+3. **領域門檻**（`domain_filter.passes_domain_gate`）
+   - 兩條通道擇一即可：JD / title 有 **AI 訊號**（`ai_intent.has_ai`），或有 **軟體/SaaS 領域訊號**
+   - 只認 AI 會砍掉「標準的 SaaS 產品經理」這類 JD 通篇沒提 AI 的目標職缺，所以加開軟體通道
+   - 軟體詞庫只收「領域詞」（SaaS / 軟體 / API / 前後端 / 電商…），**不收** PM 流程詞
+     （roadmap / PRD / user story / 敏捷）——流程詞硬體 PM 也在用，收了等於門檻失效
+   - 刻意排除「平台 / platform / 系統整合」：硬體缺同樣大量使用，實測只多帶 3.7%
+   - 不用 104 的 `industry` 欄位做白名單：該欄位公司自填且常失真（永悅健康是健康科技
+     SaaS，卻報「工商顧問服務業」，而該產業別在歷史日報中無 AI 訊號比例最高）
+   - AI 強弱不再決定生死，改由 `ai_intent` 的 tier / score 決定排序，無 AI 訊號的缺沉在最後
 
-調整過濾規則前先讀 `job_ops/role_filter.py` 與 `job_ops/ai_intent.py` 的 docstring——
-黑白名單的取捨（哪些泛詞刻意不放、為何不收緊 AI 門檻）都記在註解裡。
+調整過濾規則前先讀 `job_ops/role_filter.py`、`job_ops/ai_intent.py` 與
+`job_ops/domain_filter.py` 的 docstring——黑白名單與詞庫的取捨（哪些泛詞刻意不放、
+為何不收緊 AI 判定）都記在註解裡。每次日跑會在 log 印出
+「僅 AI 訊號 / 僅軟體訊號 / 兩者皆有」三個桶的筆數，要調詞庫時先看那組數字。
+
+## 檢索覆蓋率（為什麼會漏掃）
+
+104 的 search API **沒有「更新日排序」**：實測 `order=1`~`16` 回傳結果幾乎相同，
+`appearDate` 都不是單調遞減，等於一律吃相關性排序。搭配固定的 `max_pages`，
+每個 query 只看得到結果集的前段，冷門公司的缺會永久沉底。三道機制對抗它：
+
+1. **職稱窄詞**——PM 家族裡不叫「產品經理」的職稱（`產品規劃師`、`產品管理師`）
+   各自當關鍵字獨立撈。窄詞的母體小、相關性又高，目標缺會排到前兩頁。
+2. **`jobcat_recency_days`**——每個 jobcat 掃兩趟：一趟不設時間窗，一趟送 104 的
+   `isnew` 參數（合法值只有 0/3/7/14/30）。職類查詢動輒數千筆，加上 3 天窗口後
+   母體從 5,623 降到 1,276，同樣的 5 頁覆蓋率從 2.7% 升到 12%。兩趟缺一不可：
+   只留時間窗那趟，會失去「久未更新但仍在架」的缺，而那正是 jobcat 通道的用途；
+   只留無窗那趟就是退回修正前。兩趟結果會去重，重疊的部分不會重複抓 detail。
+3. **keyword 查詢不套時間窗**——保留一份不受 `isnew` 限制的廣度掃描。
+
+因為排序不是按日期，**不可以**用「這頁都是舊職缺就停止翻頁」來提早結束；
+`from_date` 只是純客戶端過濾，不會減少翻頁次數。
 
 ## 下架判定（避免假下架）
 
@@ -102,7 +128,8 @@ tail -f data/logs/daily.out.log
 - `job_ops/scraper_104.py` — 104 search + detail API 爬蟲
 - `job_ops/anti_detect.py` — RateLimiter + UA 輪替
 - `job_ops/role_filter.py` — 兩階段職稱過濾（title 黑白名單 + JD 職能訊號）
-- `job_ops/ai_intent.py` — AI 關鍵字硬門檻 + 加權 lexicon 排序
+- `job_ops/ai_intent.py` — AI 訊號偵測（門檻通道之一）+ 加權 lexicon 排序
+- `job_ops/domain_filter.py` — 納入門檻：AI 訊號 或 軟體/SaaS 領域訊號
 - `job_ops/history.py` — TSV 持久化 + lifecycle 計算（新上架/更新/下架/在架未掃到）
 - `scripts/reverify-expired.py` — 一次性回填：複驗歷史 Expired，把假下架改標 ListedNotScanned
 - `job_ops/report.py` — markdown + inline-styled HTML 報告
