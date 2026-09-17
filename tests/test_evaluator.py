@@ -54,7 +54,7 @@ def test_score_activeness_high_signal():
 
 
 def test_score_activeness_with_recent_resume_bonus():
-    # 0.65 → 4，加上「小時前」應拉到 5（capped）
+    # 0.65 → 4，加上 24h 內處理過履歷應拉到 5（capped）
     notes = {"activeness_score": 0.65, "resume_recency": "within_day"}
     assert score_activeness(notes) == 5
 

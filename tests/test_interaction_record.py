@@ -145,6 +145,22 @@ def test_pr_kept_when_interaction_record_missing():
     assert notes["activeness_score"] == 0.7
 
 
+def test_reply_timestamp_wins_over_desc_when_both_present():
+    detail = _legacy_detail(pr=0.5)
+    detail["interactionRecord"]["lastCustReplyTimestamp"] = NOW - 2 * 3600
+    detail["interactionRecord"]["lastCustReplyDesc"] = "9 天內聯絡過求職者"
+    notes = _extract_activeness(detail)
+    assert notes["reply_info"] == "2 小時前回覆求職者"
+
+
+def test_resume_timestamp_wins_over_desc_when_both_present():
+    detail = _legacy_detail(pr=0.5, resume_hours_ago=3)
+    detail["interactionRecord"]["lastProcessedResumeDesc"] = "9 天內處理過履歷"
+    notes = _extract_activeness(detail)
+    assert notes["resume_info"] == "3 小時前聯絡應徵者"
+    assert notes["resume_recency"] == "within_day"
+
+
 @pytest.mark.parametrize(
     ("hours", "expected"),
     [(23, "within_day"), (24, "within_week"), (167, "within_week"), (168, "over_week")],
