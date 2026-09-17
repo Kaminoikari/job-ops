@@ -11,6 +11,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from typing import Literal
 from urllib.parse import quote
 
 import httpx
@@ -155,22 +156,56 @@ def _dump_sample_once(data: dict, dest: Path) -> None:
         log.warning("failed to dump sample: %s", e)
 
 
+ResumeRecency = Literal["within_day", "within_week", "over_week"]
+
+# 104 描述文字的格式（2026-09-17 抽樣 250 筆真實職缺，只出現這三種單位）：
+#   「46 分鐘前聯絡過求職者」「15 小時前處理過履歷」「7 天內處理過履歷」
+# 「N 天內」在 23 小時前之後從 1 開始，且「1 天內」是最常見的值，所以它是
+# 無條件捨去的天數（N ≤ 實際天數 < N+1），換算成時數取下界 N×24。
+_DESC_UNIT_HOURS = {"分鐘前": 1 / 60, "小時前": 1, "天內": 24}
+_RESUME_DESC_RE = re.compile(r"^(\d+) (分鐘前|小時前|天內)處理過履歷$")
+
+
+def _resume_recency(hours: float) -> ResumeRecency:
+    if hours < 24:
+        return "within_day"
+    if hours < 24 * 7:
+        return "within_week"
+    return "over_week"
+
+
+def _desc_text(ir: dict, key: str) -> str | None:
+    value = ir.get(key)
+    return value if isinstance(value, str) and value else None
+
+
 def _extract_activeness(detail: dict) -> dict:
     """從 104 detail JSON 抓徵才積極度與最近聯絡時間。
 
     Confirmed 欄位（觀察自實際 API）：
         header.hrBehaviorPR              — 0~1 浮點數，HR 行為積極度（越接近 1 越積極）
+        header.hasHrBehavior             — bool，104 頁面「徵才行為活躍」標記
         interactionRecord.lastCustReplyTimestamp     — 最後雇主回覆 unix 秒
         interactionRecord.lastProcessedResumeAtTime  — 最後處理應徵者 unix 秒
         interactionRecord.nowTimestamp               — 當前 unix 秒（用來算「幾小時前」）
+        interactionRecord.lastCustReplyDesc          — 「N 分鐘前聯絡過求職者」
+        interactionRecord.lastProcessedResumeDesc    — 「N 小時前處理過履歷」
+
+    2026-09-05 起 104 把上面所有數值欄位回傳成 0，只留描述文字與
+    hasHrBehavior。nowTimestamp 不可能真的是 0，用它判定這筆被遮蔽；
+    hrBehaviorPR 本身不能當判準，遮蔽前每天也有幾筆真的 0.00。
     """
     import time as _time
     notes: dict = {}
     header = detail.get("header") or {}
     ir = detail.get("interactionRecord") or {}
+    masked = ir.get("nowTimestamp") == 0
 
     pr = header.get("hrBehaviorPR")
-    if isinstance(pr, (int, float)):
+    if masked:
+        if header.get("hasHrBehavior") is True:
+            notes["activeness"] = "🟢 徵才行為活躍"
+    elif isinstance(pr, (int, float)):
         # 把 0~1 分數轉成中文標籤
         if pr >= 0.8:
             notes["activeness"] = f"🟢 積極徵才 ({pr:.2f})"
@@ -193,6 +228,8 @@ def _extract_activeness(detail: dict) -> dict:
             notes["reply_info"] = f"{hours // 24} 天前回覆求職者"
         else:
             notes["reply_info"] = f"{hours // 24} 天前回覆（超過 1 週）"
+    elif reply_desc := _desc_text(ir, "lastCustReplyDesc"):
+        notes["reply_info"] = reply_desc
     if last_resume:
         hours = int((now_ts - last_resume) / 3600)
         if hours < 24:
@@ -201,6 +238,17 @@ def _extract_activeness(detail: dict) -> dict:
             notes["resume_info"] = f"{hours // 24} 天前聯絡應徵者"
         else:
             notes["resume_info"] = f"{hours // 24} 天前聯絡（超過 1 週）"
+        notes["resume_recency"] = _resume_recency(hours)
+    elif resume_desc := _desc_text(ir, "lastProcessedResumeDesc"):
+        # 原文照登；拆不出來就不給 resume_recency，評分維持中性
+        notes["resume_info"] = resume_desc
+        m = _RESUME_DESC_RE.match(resume_desc)
+        if m:
+            notes["resume_recency"] = _resume_recency(int(m.group(1)) * _DESC_UNIT_HOURS[m.group(2)])
+        else:
+            log.warning(
+                "104 lastProcessedResumeDesc 格式無法辨識（len=%d），原文見日報該格", len(resume_desc)
+            )
 
     return notes
 

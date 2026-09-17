@@ -14,9 +14,9 @@
 | Signal | Finding | Weight | Source |
 |---|---|---|---|
 | Posting 新鮮度 | {104 update_date 比今天 N 天前} | 🟢 / 🟡 / 🔴 | 104 |
-| 候選人聯絡時間 | "{X 小時前聯絡應徵者}" | 🟢 / 🟡 / 🔴 | 104 interactionRecord |
-| 雇主回覆時間 | "{X 小時前回覆求職者}" | 🟢 / 🟡 / 🔴 | 104 interactionRecord |
-| hrBehaviorPR | {X.XX 分} | 🟢 / 🟡 / 🔴 | 104 |
+| 候選人聯絡時間 | "{notes.resume_info，例：15 小時前處理過履歷}" | 🟢 / 🟡 / 🔴 | 104 interactionRecord |
+| 雇主回覆時間 | "{notes.reply_info，例：2 分鐘前聯絡過求職者}" | 🟢 / 🟡 / 🔴 | 104 interactionRecord |
+| 徵才行為活躍 | {notes.activeness} | 🟢 / — | 104 hasHrBehavior |
 | Reposting 偵測 | 同公司同類職缺出現 N 次 / Y 天 | 🟢 / 🟡 / 🔴 | tracker.tsv 歷史 |
 | JD 品質 | {具體程度、是否提團隊規模、報告線、首 6 個月 scope} | 🟢 / 🟡 / 🔴 | JD 內文 |
 | 公司近期動態 | {裁員 / 凍結 / 募資} | 🟢 / 🟡 / 🔴 | WebSearch |
@@ -50,7 +50,9 @@
 | 31-60 天 | 🟠 |
 | > 60 天 | 🔴（除非是政府/學術，可調整為 🟡） |
 
-### 候選人聯絡時間（lastProcessedResumeAtTime）
+### 候選人聯絡時間（lastProcessedResumeDesc）
+
+104 描述文字「N 天內」是捨去後的天數，「7 天內」即已滿 7 天。
 
 | 時間 | 🟢/🟡/🔴 |
 |---|---|
@@ -59,7 +61,11 @@
 | 4-7 天 | 🟠 |
 | > 7 天 | 🔴 |
 
-### hrBehaviorPR
+### 徵才行為活躍（hasHrBehavior）
+
+104 自 2026-09-05 起不再公開 hrBehaviorPR 分數（notes 不會有 `activeness_score`），只剩頁面上的「徵才行為活躍」標記：有標記 → 🟢；沒有 → 不列入訊號（104 未公開標記門檻，不能當成 🔴）。
+
+若 notes 仍帶 `activeness_score`（104 恢復公開分數），照下表：
 
 | 分數 | 🟢/🟡/🔴 |
 |---|---|

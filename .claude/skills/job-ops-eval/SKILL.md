@@ -27,7 +27,7 @@ cd /Users/charles/job-ops
 ```
 
 This outputs a JSON with:
-- `job` — full 104 detail dict (jd, company, salary, location, benefits, 104 update_date, hrBehaviorPR, lastProcessedResumeAtTime, lastCustReplyTimestamp)
+- `job` — full 104 detail dict (jd, company, salary, location, benefits, 104 update_date, notes: activeness / reply_info / resume_info / resume_recency)
 - `cv` — parsed cv.md (hard_skills, domains, proof_points, work_experience)
 - `archetype` — keyword-matched archetype + fit (primary/secondary/adjacent)
 - `machine_scores` — pre-computed d2_salary, d3_archetype_fit, d4_activeness (use these as starting point, override if needed)

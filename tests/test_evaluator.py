@@ -55,8 +55,16 @@ def test_score_activeness_high_signal():
 
 def test_score_activeness_with_recent_resume_bonus():
     # 0.65 → 4，加上「小時前」應拉到 5（capped）
-    notes = {"activeness_score": 0.65, "resume_info": "3 小時前聯絡應徵者"}
+    notes = {"activeness_score": 0.65, "resume_recency": "within_day"}
     assert score_activeness(notes) == 5
+
+
+def test_score_activeness_stale_resume_penalty():
+    assert score_activeness({"resume_recency": "over_week"}) == 2
+
+
+def test_score_activeness_within_week_resume_unchanged():
+    assert score_activeness({"resume_recency": "within_week"}) == 3
 
 
 def test_score_activeness_low_signal():
@@ -213,7 +221,7 @@ def test_prepare_context_smoke(tmp_path, monkeypatch):
         "jd": "We need an AI/LLM PM",
         "company": "Acme",
         "salary_min": 100000,
-        "notes": {"activeness_score": 0.85, "resume_info": "1 小時前聯絡應徵者"},
+        "notes": {"activeness_score": 0.85, "resume_recency": "within_day"},
     }
     ctx = prepare_context(
         url="https://www.104.com.tw/job/xxx",

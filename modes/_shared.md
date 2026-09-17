@@ -24,7 +24,7 @@
 | 1 | 硬技能 + 領域經驗匹配 | 25% | `cv.md` Hard Skills/Domains × JD requirements |
 | 2 | 薪資水準 | 15% | 104 `salary_min` vs `profile.yml` target × WebSearch 同職位中位數 |
 | 3 | 職涯目標契合度 | 10% | 4 PM archetypes × JD keywords |
-| 4 | 徵才活躍度 | 15% | 104 `hrBehaviorPR` + `lastProcessedResumeAtTime` + `lastCustReplyTimestamp` |
+| 4 | 徵才活躍度 | 15% | 104 `hasHrBehavior`（`hrBehaviorPR` 2026-09 起遮蔽）+ `lastProcessedResumeDesc` + `lastCustReplyDesc` |
 | 5 | 公司穩定性 | 15% | forum_cache + WebSearch（裁員/募資/負評密度） |
 | 6 | 文化訊號 | 10% | forum_cache + JD 描述（加班強度、團隊風格） |
 | 7 | 成長機會 | 5% | JD 中職級空間 + tech stack + 團隊規模 |
