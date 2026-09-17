@@ -93,9 +93,8 @@ def score_activeness(notes: dict) -> int:
     """第 4 維度：徵才活躍度。直接從 104 訊號計算。
 
     notes: scraper_104.detail() 回傳的 notes dict，含
-        - activeness_score: float (0~1)，hrBehaviorPR
-        - reply_info: str（"X 小時前回覆求職者"）
-        - resume_info: str（"X 小時前聯絡應徵者"）
+        - activeness_score: float (0~1)，hrBehaviorPR（104 遮蔽時不會有）
+        - resume_recency: scraper_104.ResumeRecency，最後處理履歷距今的區間
     """
     score = 3   # 中性起點
     activeness = notes.get("activeness_score")
@@ -109,11 +108,11 @@ def score_activeness(notes: dict) -> int:
         else:
             score = 1
 
-    # 補強：若有近期聯絡應徵者 < 24h → +1
-    resume_info = notes.get("resume_info") or ""
-    if "小時前" in resume_info:
+    # 補強：24h 內處理過履歷 → +1；超過 1 週 → -1
+    recency = notes.get("resume_recency")
+    if recency == "within_day":
         score = min(5, score + 1)
-    elif "天前聯絡" in resume_info and "1 週" in resume_info:
+    elif recency == "over_week":
         score = max(1, score - 1)
 
     return score
