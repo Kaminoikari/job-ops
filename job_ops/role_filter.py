@@ -40,9 +40,11 @@ _PM_CPO = re.compile(r"產品長(?!期)")
 # product 後面不得再接英文字：「Head of Product Marketing／Engineering／Sales」是
 # 行銷、工程、業務職，若豁免會靠白名單繞過 _ROLE_BLACKLIST 與 _NON_PM_BLACKLIST。
 # 逗號、括號、中文、行尾可以接（「Head of Product, AI Platform」）。
-# 前面也要字邊界，否則「MVP Product Engineer」的 vp 會命中。
+# 前面也要字邊界，否則「MVP Product 業務專員」的 vp 會命中；SVP／EVP／AVP 是
+# 真的副總職級，明列在邊界內。後接其他英文字一律不豁免是刻意取捨：「Head of
+# Product and Design」改走 JD 階段判定，換取不讓 engineering／sales 繞過黑名單。
 _PM_LEADERSHIP = re.compile(
-    r"(?<![a-z])(?:head|director|vp|vice president)\s*(?:of\s+|,\s*)?product(?:s)?(?!\s*[a-z])"
+    r"(?<![a-z])(?:head|director|[sea]?vp|vice president)\s*(?:of\s+|,\s*)?product(?:s)?(?!\s*[a-z])"
     r"|product\s+director(?![a-z])"
     r"|產品(?:副總|處長|部主管|主管)",
     re.IGNORECASE,
