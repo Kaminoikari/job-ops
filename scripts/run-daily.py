@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from job_ops.ai_intent import annotate_ai_intent, has_ai_signal
-from job_ops.config import load_email_env, load_search_config, passes_filters
+from job_ops.config import drop_excluded, load_email_env, load_search_config, passes_filters
 from job_ops.domain_filter import has_software_signal, passes_domain_gate
 from job_ops.email_sender import send_daily_email
 from job_ops.history import (
@@ -158,6 +158,7 @@ def main() -> int:
 
     if skip_scrape:
         today_jobs, scan = _load_cached_scan()
+        scan = drop_excluded(scan, cfg.filters)
         log.info("[%s mode] loaded cached scan: %d total jobs, %d new",
                  "email-only" if args.email_only else "dry-run",
                  len(today_jobs), len(scan.new_items))
@@ -181,6 +182,8 @@ def main() -> int:
         history = load_history(HISTORY_PATH)
         log.info("history records: %d", len(history))
         scan = compare(today_jobs, history, today=today)
+        # 在 detail 驗證前排除：否則歷史裡同公司的職缺會被確認在架而列進日報
+        scan = drop_excluded(scan, cfg.filters)
 
         # 今天沒撈到的職缺先別當下架——逐筆向 104 detail 確認，避免「掉出掃描覆蓋窗」
         # 被誤標成 Expired（假下架）。只有 detail 回 404 才判真下架。

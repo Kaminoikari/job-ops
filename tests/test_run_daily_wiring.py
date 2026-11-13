@@ -114,3 +114,106 @@ jobcat_recency_days: {yaml_value}
     # 同時確認其餘既有設定沒有在這條路徑上掉件
     assert captured["jobcats"] == ["2004003009"]
     assert captured["keywords"] == ["產品經理"]
+
+
+# ---------- 排除雇主：main() 兩條路徑都不能漏 ----------
+
+import json  # noqa: E402
+import sys  # noqa: E402
+
+_EXCLUDE_YAML = """
+keywords: [產品經理]
+areas: [台北市]
+filters:
+  exclude_companies: [創造智能]
+  exclude_jd_keywords: [三立集團]
+"""
+
+_HISTORY_HEADER = ("url\tfirst_seen\tlast_seen\tlast_104_update\tcompany\ttitle\tsalary_raw\t"
+                   "salary_min\tlocation\taddress\tstatus\tsalary_history\tnotes\n")
+
+
+def _point_paths(run_daily, monkeypatch, tmp_path):
+    cfg = tmp_path / "search.yml"
+    cfg.write_text(_EXCLUDE_YAML, encoding="utf-8")
+    monkeypatch.setattr(run_daily, "CONFIG_PATH", cfg)
+    monkeypatch.setattr(run_daily, "HISTORY_PATH", tmp_path / "history.tsv")
+    monkeypatch.setattr(run_daily, "LAST_SCAN_PATH", tmp_path / "last-scan.json")
+    monkeypatch.setattr(run_daily, "REPORT_DIR", tmp_path / "reports")
+    monkeypatch.setattr(run_daily, "LOG_DIR", tmp_path / "logs")
+    monkeypatch.setattr(run_daily, "SAMPLE_DUMP_PATH", tmp_path / "logs" / "s.json")
+
+
+def _report_html(tmp_path):
+    return next((tmp_path / "reports").glob("*.html")).read_text(encoding="utf-8")
+
+
+def test_main_live_path_excludes_employer_from_report_and_verification(tmp_path, monkeypatch):
+    """歷史裡已有被排除公司的職缺：今天掃描濾掉後它會變成 missing，若不在驗證前
+    排除，就會被 detail 確認在架而出現在「在架未掃到」。"""
+    run_daily = _load_run_daily()
+    _point_paths(run_daily, monkeypatch, tmp_path)
+    (tmp_path / "history.tsv").write_text(
+        _HISTORY_HEADER
+        + "https://www.104.com.tw/job/old\t2026-10-30\t2026-11-12\t2026/11/10\t"
+          "創造智能科技股份有限公司\tAI應用規劃師\t面議\t\t台北市\t\tNew\t\t{}\n"
+        + "https://www.104.com.tw/job/keep\t2026-10-30\t2026-11-12\t2026/11/10\t"
+          "宇見智能科技\t舊 PM 職缺\t面議\t\t台北市\t\tNew\t\t{}\n",
+        encoding="utf-8",
+    )
+    scraped = [
+        {"url": "https://www.104.com.tw/job/bad", "title": "AI 產品經理",
+         "company": "創造智能科技股份有限公司", "jd": "負責大型語言模型 LLM 產品規劃",
+         "salary_min": None, "104_update_date": "2026/11/13"},
+        {"url": "https://www.104.com.tw/job/badjd", "title": "AI 產品經理",
+         "company": "某某新創", "jd": "三立集團旗下，負責大型語言模型 LLM 產品規劃",
+         "salary_min": None, "104_update_date": "2026/11/13"},
+        {"url": "https://www.104.com.tw/job/good", "title": "AI 產品經理",
+         "company": "宇見智能科技", "jd": "負責大型語言模型 LLM 產品規劃",
+         "salary_min": None, "104_update_date": "2026/11/13"},
+    ]
+    verified: list[str] = []
+
+    async def _fake_scrape_all(**kwargs):
+        return [dict(j) for j in scraped]
+
+    async def _fake_verify(urls):
+        verified.extend(urls)
+        return {u: True for u in urls}
+
+    monkeypatch.setattr(run_daily, "scrape_all", _fake_scrape_all)
+    monkeypatch.setattr(run_daily, "verify_listings_alive", _fake_verify)
+    monkeypatch.setattr(sys, "argv", ["run-daily.py", "--no-email"])
+
+    assert run_daily.main() == 0
+    assert verified == ["https://www.104.com.tw/job/keep"]
+    html = _report_html(tmp_path)
+    assert "job/good" in html and "job/keep" in html
+    for bad in ("job/bad\"", "job/badjd", "job/old", "創造智能"):
+        assert bad not in html, bad
+
+
+def test_main_cached_path_excludes_employer(tmp_path, monkeypatch):
+    """--email-only／--dry-run 讀的是排除名單加入前寫下的快取，必須在讀回時再濾一次。"""
+    run_daily = _load_run_daily()
+    _point_paths(run_daily, monkeypatch, tmp_path)
+    bad = {"url": "https://www.104.com.tw/job/bad", "title": "AI 產品經理",
+           "company": "創造智能科技股份有限公司", "jd": "LLM", "salary_min": None}
+    good = {"url": "https://www.104.com.tw/job/good", "title": "AI 產品經理",
+            "company": "宇見智能科技", "jd": "LLM", "salary_min": None}
+    rec = {"url": "https://www.104.com.tw/job/lns", "first_seen": "2026-10-30",
+           "last_seen": "2026-11-12", "last_104_update": "2026/11/10",
+           "company": "創造智能科技股份有限公司", "title": "AI應用規劃師",
+           "salary_raw": "面議", "salary_min": "", "location": "台北市", "address": "",
+           "status": "ListedNotScanned", "salary_history": "", "notes": "{}"}
+    (tmp_path / "last-scan.json").write_text(json.dumps({
+        "today": "2026-11-13", "today_jobs": [bad, good],
+        "scan": {"new_items": [bad, good], "refreshed": [], "salary_changed": [],
+                 "still_listed": [], "expired": [], "listed_not_scanned": [rec]},
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["run-daily.py", "--dry-run"])
+
+    assert run_daily.main() == 0
+    html = _report_html(tmp_path)
+    assert "job/good" in html
+    assert "job/bad" not in html and "job/lns" not in html and "創造智能" not in html
