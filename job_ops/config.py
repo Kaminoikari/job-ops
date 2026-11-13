@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
 
+from job_ops.history import ScanResult
 from job_ops.role_filter import confirm_target_role
 from job_ops.scraper_104 import VALID_RECENCY_DAYS
 
@@ -18,6 +19,8 @@ class FilterConfig:
     include_negotiable_salary: bool = True
     exclude_keywords: list[str] = field(default_factory=list)
     exclude_companies: list[str] = field(default_factory=list)
+    # JD 含這些字詞 → 排除。用來擋公司名看不出隸屬的子公司（JD 常自述「XX 集團旗下」）
+    exclude_jd_keywords: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -79,6 +82,7 @@ def load_search_config(path: str | Path) -> SearchConfig:
             include_negotiable_salary=bool(filt.get("include_negotiable_salary", True)),
             exclude_keywords=list(filt.get("exclude_keywords") or []),
             exclude_companies=list(filt.get("exclude_companies") or []),
+            exclude_jd_keywords=list(filt.get("exclude_jd_keywords") or []),
         ),
     )
 
@@ -110,9 +114,49 @@ def passes_filters(job: dict, cfg: FilterConfig) -> bool:
         return False
     if any(kw in title for kw in cfg.exclude_keywords):
         return False
-    if any(c in company for c in cfg.exclude_companies):
+    if is_excluded_employer(company, job.get("jd", "") or "", cfg):
         return False
 
     if salary_min is None:
         return cfg.include_negotiable_salary
     return salary_min >= cfg.min_salary_monthly
+
+
+def is_excluded_employer(company: str, jd: str, cfg: FilterConfig) -> bool:
+    """公司名含 exclude_companies 任一詞，或 JD 含 exclude_jd_keywords 任一詞。
+
+    空字串一律略過：`"" in s` 恆成立，YAML 多寫一個空項目就會排掉全部職缺。
+    """
+    if any(c and c in company for c in cfg.exclude_companies):
+        return True
+    return any(k and k in jd for k in cfg.exclude_jd_keywords)
+
+
+def drop_excluded(
+    scan: ScanResult, cfg: FilterConfig, excluded_urls: frozenset[str] = frozenset()
+) -> ScanResult:
+    """把被排除雇主的職缺從 scan 的每一個清單拿掉。
+
+    passes_filters 只管今天掃到的職缺；歷史裡已有的同公司職缺會以 missing 回來，
+    驗證在架後落進「在架未掃到」。快取（--email-only／--dry-run）則是排除名單
+    加入前寫下的。兩條路都要在這裡再濾一次。
+
+    Record 沒有 JD，只能比公司名；公司名看不出隸屬、只有 JD 認得出的職缺，由呼叫端
+    把今天爬到時被 JD 擋下的 URL 傳進 excluded_urls。今天沒爬到的這類舊紀錄擋不住。
+    """
+    def keep_job(j: dict) -> bool:
+        return not is_excluded_employer(j.get("company", "") or "", j.get("jd", "") or "", cfg)
+
+    def keep_rec(r) -> bool:
+        return r.url not in excluded_urls and not is_excluded_employer(r.company or "", "", cfg)
+
+    return replace(
+        scan,
+        new_items=[j for j in scan.new_items if keep_job(j)],
+        refreshed=[j for j in scan.refreshed if keep_job(j)],
+        salary_changed=[j for j in scan.salary_changed if keep_job(j)],
+        still_listed=[j for j in scan.still_listed if keep_job(j)],
+        missing=[r for r in scan.missing if keep_rec(r)],
+        expired=[r for r in scan.expired if keep_rec(r)],
+        listed_not_scanned=[r for r in scan.listed_not_scanned if keep_rec(r)],
+    )

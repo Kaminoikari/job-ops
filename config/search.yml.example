@@ -90,3 +90,6 @@ filters:
 
   # 公司名稱包含這些字詞 → 排除
   exclude_companies: []
+
+  # JD 包含這些字詞 → 排除。擋公司名看不出隸屬的子公司（例：JD 自述「XX 集團旗下」）
+  exclude_jd_keywords: []
