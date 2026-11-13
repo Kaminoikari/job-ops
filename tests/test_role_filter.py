@@ -190,6 +190,8 @@ PRODUCT_LEADERSHIP_TITLES = [
     "Chief Product Officer",
     "Head of Product",
     "Head of Product, AI Platform",
+    "Head of Products",
+    "VP, Product",
     "VP of Product",
     "VP Product",
     "Vice President of Product",
