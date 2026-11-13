@@ -294,3 +294,15 @@ def test_product_leadership_whitelist_needs_word_boundary(title):
     """Production／Productivity／Directory 內含 product／director 字樣，不可拿到白名單豁免；
     用 JD 階段觀察：未豁免的模糊職稱配上無 PM 訊號的 JD 會被剔除。"""
     assert confirm_target_role(title, TERSE_LEADERSHIP_JD) is False
+
+
+@pytest.mark.parametrize("title", [
+    "Head of Product Engineering",
+    "Director, Product Engineering",
+    "VP of Product Sales",
+    "MVP Product Engineer",
+])
+def test_product_leadership_whitelist_does_not_rescue_other_functions(title):
+    """Product 後面再接一個職能字（engineering／sales…）就不是產品主管職，
+    不可靠白名單繞過工程職與非 PM 黑名單；vp 前也要有字邊界（MVP 不算 VP）。"""
+    assert is_target_role(title) is False

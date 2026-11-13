@@ -37,10 +37,12 @@ _PM_CPO = re.compile(r"產品長(?!期)")
 
 # 其他產品主管職稱（Head of Product／VP of Product／Product Director／產品副總…）。
 # 理由同 _PM_WHITELIST 的產品總監：主管缺 JD 常沒有 roadmap／PRD 詞彙。
-# 「Head of Product Marketing」是行銷職，後接 marketing 時不得豁免，
-# 否則會靠白名單繞過 _NON_PM_BLACKLIST 的 marketing。
+# product 後面不得再接英文字：「Head of Product Marketing／Engineering／Sales」是
+# 行銷、工程、業務職，若豁免會靠白名單繞過 _ROLE_BLACKLIST 與 _NON_PM_BLACKLIST。
+# 逗號、括號、中文、行尾可以接（「Head of Product, AI Platform」）。
+# 前面也要字邊界，否則「MVP Product Engineer」的 vp 會命中。
 _PM_LEADERSHIP = re.compile(
-    r"(?:head|director|vp|vice president)\s*(?:of\s+|,\s*)?product(?:s)?(?![a-z])(?!\s*marketing)"
+    r"(?<![a-z])(?:head|director|vp|vice president)\s*(?:of\s+|,\s*)?product(?:s)?(?!\s*[a-z])"
     r"|product\s+director(?![a-z])"
     r"|產品(?:副總|處長|部主管|主管)",
     re.IGNORECASE,
