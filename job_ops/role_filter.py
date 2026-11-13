@@ -35,6 +35,17 @@ _PM_WHITELIST = (
 # 「產品長」＝CPO，但「產品長期…」也含這三字，後接「期」時不是職稱，不得豁免。
 _PM_CPO = re.compile(r"產品長(?!期)")
 
+# 其他產品主管職稱（Head of Product／VP of Product／Product Director／產品副總…）。
+# 理由同 _PM_WHITELIST 的產品總監：主管缺 JD 常沒有 roadmap／PRD 詞彙。
+# 「Head of Product Marketing」是行銷職，後接 marketing 時不得豁免，
+# 否則會靠白名單繞過 _NON_PM_BLACKLIST 的 marketing。
+_PM_LEADERSHIP = re.compile(
+    r"(?:head|director|vp|vice president)\s*(?:of\s+|,\s*)?product(?:s)?(?![a-z])(?!\s*marketing)"
+    r"|product\s+director(?![a-z])"
+    r"|產品(?:副總|處長|部主管|主管)",
+    re.IGNORECASE,
+)
+
 # 「產品管理/產品企劃」救回「產品管理專員」這類入門 PM，但後接組織單位字
 # （處/部/組/室/課/中心）時是部門名而非職能，不得觸發豁免，
 # 否則「商品行銷企劃人員(產品管理處)」會被部門名救回。
@@ -144,6 +155,7 @@ def _is_title_whitelisted(title: str) -> bool:
         any(w in title for w in _PM_WHITELIST)
         or _PM_FUNCTION.search(title) is not None
         or _PM_CPO.search(title) is not None
+        or _PM_LEADERSHIP.search(title) is not None
         or _PM_ABBR.search(title) is not None
     )
 

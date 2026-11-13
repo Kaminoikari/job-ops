@@ -6,6 +6,7 @@ from collections import defaultdict
 
 import markdown as md_lib
 
+from .focus_domain import FOCUS_ICONS, FOCUS_LABELS, classify_focus_domains
 from .history import ScanResult
 
 
@@ -55,10 +56,16 @@ def _ai_score(j: dict) -> float:
         return 0.0
 
 
+def _focus_icons(j: dict) -> str:
+    """職稱前綴的重點領域圖示（例：「🦾🧠 」）；不屬於重點領域回空字串。"""
+    icons = "".join(FOCUS_ICONS[k] for k in classify_focus_domains(j))
+    return icons + " " if icons else ""
+
+
 def _job_row(j: dict) -> str:
     salary = _fmt_salary(j.get("salary_min"))
     company = _trim(j.get("company", "—"), 30)
-    title = _trim(j.get("title", "—"), 50)
+    title = _trim(_focus_icons(j) + j.get("title", "—"), 50)
     industry = _trim(j.get("industry", "") or "—", 20)
     loc = _trim(j.get("location", "") or "—", 20)
     url = j.get("url", "")
@@ -79,6 +86,24 @@ def _job_row_header() -> list[str]:
         "| AI | 月薪下限 | 公司 | 產業 | 職位 | 地區 | 連結 | 徵才積極度 | 回覆求職者 | 聯絡應徵者 |",
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
+
+
+_FOCUS_STATUS = (("new_items", "🆕 新上架"), ("refreshed", "🔄 104 更新"), ("still_listed", "📌 仍在架"))
+
+
+def _focus_rows(scan: ScanResult) -> list[tuple[str, list[str], dict]]:
+    """在架職缺中屬於重點領域者：（狀態、領域 keys、job），新上架→更新→仍在架，同狀態依 priority。"""
+    rows: list[tuple[str, list[str], dict]] = []
+    for attr, status in _FOCUS_STATUS:
+        group = [(status, classify_focus_domains(j), j) for j in getattr(scan, attr)]
+        group = [r for r in group if r[1]]
+        group.sort(key=lambda r: -_ai_score(r[2]))
+        rows.extend(group)
+    return rows
+
+
+def _count_new_focus(scan: ScanResult) -> int:
+    return sum(1 for j in scan.new_items if classify_focus_domains(j))
 
 
 def build_markdown(
@@ -106,6 +131,7 @@ def build_markdown(
     new_ai_count = sum(1 for j in scan.new_items if _is_ai_pm(j))
 
     active_jobs = scan.new_items + scan.refreshed + scan.still_listed
+    focus_rows = _focus_rows(scan)
 
     # 1. 摘要
     lines.append(f"# 📋 104 AI 職缺日報 — {today}")
@@ -115,12 +141,39 @@ def build_markdown(
     lines.append(f"- 今日總抓取：**{scan.total_today()}** 筆（全數通過領域門檻：AI 或 軟體/SaaS）")
     lines.append(f"- 🆕 今日新上架：**{len(scan.new_items)}** 筆（含面議 {len(new_negotiable)} 筆）")
     lines.append(f"- 🤖 其中強訊號 AI PM：**{new_ai_count}** 筆（JD 意圖偵測判定，已排前）")
+    lines.append(
+        f"- 🎯 重點領域（Physical AI／LLM／FDE）：在架 **{len(focus_rows)}** 筆，"
+        f"其中今日新上架 **{_count_new_focus(scan)}** 筆"
+    )
     lines.append(f"- 🔄 104 更新日期變動：**{len(scan.refreshed)}** 筆")
     lines.append(f"- 💰 薪資變動：**{len(scan.salary_changed)}** 筆")
     lines.append(f"- 📌 仍在架（無變動）：{len(scan.still_listed)} 筆")
     if scan.listed_not_scanned:
         lines.append(f"- 📡 在架未掃到（漏掃補回）：**{len(scan.listed_not_scanned)}** 筆")
     lines.append("")
+
+    # 1b. 重點領域：每天列出全部在架者（不只變化），方便一眼看完這三個領域
+    if focus_rows:
+        lines.append(f"## 🎯 重點領域職缺（{len(focus_rows)} 筆）")
+        lines.append("")
+        lines.append("> " + "、".join(FOCUS_LABELS.values())
+                     + "；下方各表的職稱前也會標同樣的圖示")
+        lines.append("")
+        lines.append("| 領域 | 狀態 | AI | 月薪下限 | 公司 | 職位 | 地區 | 連結 | 徵才積極度 |")
+        lines.append("|---|---|---|---|---|---|---|---|---|")
+        for status, keys, j in focus_rows:
+            notes = j.get("notes") or {}
+            url = j.get("url", "")
+            lines.append(
+                f"| {'／'.join(FOCUS_LABELS[k] for k in keys)} | {status} | {_ai_cell(j)} | "
+                f"{_fmt_salary(j.get('salary_min'))} | "
+                f"{_trim(j.get('company', '—'), 30)} | "
+                f"{_trim(j.get('title', '—'), 50)} | "
+                f"{_trim(j.get('location', '') or '—', 20)} | "
+                f"{f'[104]({url})' if url else '—'} | "
+                f"{_trim(str(notes.get('activeness', '') or '—'), 20)} |"
+            )
+        lines.append("")
 
     # 2. 今日新上架
     lines.append("## 🆕 今日新上架")
@@ -336,6 +389,9 @@ def render_html(md_text: str, today: str) -> str:
 
 def build_subject(scan: ScanResult, today: str) -> str:
     parts = [f"{len(scan.new_items)} 筆新上架"]
+    new_focus = _count_new_focus(scan)
+    if new_focus:
+        parts.append(f"🎯 重點領域 {new_focus} 筆")
     if scan.refreshed:
         parts.append(f"{len(scan.refreshed)} 筆 104 更新")
     if scan.salary_changed:

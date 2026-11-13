@@ -141,3 +141,99 @@ def test_priority_orders_new_listings():
     md = build_markdown(scan, "2026-05-13")
     # priority 高（9.0）的 high 應排在 priority 低（5.0）的 low 之前，即使薪資較低
     assert md.index("[104](high)") < md.index("[104](low)")
+
+
+# ---------- 重點領域 highlight（Physical AI／LLM／FDE）----------
+
+_FOCUS_HEADER = "## 🎯 重點領域職缺"
+
+
+def _physical(url, **kw):
+    return _job(url, title="Physical AI 產品經理", **kw)
+
+
+def test_default_fixture_is_not_focus():
+    # 前提：其他測試的預設 _job 不屬於任何重點領域，否則下面的「不出現」斷言沒有意義
+    from job_ops.focus_domain import classify_focus_domains
+    assert classify_focus_domains(_job("u1")) == []
+
+
+def test_focus_section_lists_all_active_with_status():
+    scan = ScanResult(today="2026-05-13",
+                      new_items=[_physical("n1"), _job("plain")],
+                      refreshed=[_job("r1", title="Forward Deployed PM")],
+                      salary_changed=[],
+                      still_listed=[_job("s1", title="GenAI 產品經理")],
+                      expired=[])
+    md = build_markdown(scan, "2026-05-13")
+    section = md.split(_FOCUS_HEADER, 1)[1].split("\n## ", 1)[0]
+    assert "[104](n1)" in section and "🆕" in section
+    assert "[104](r1)" in section and "🔄" in section
+    assert "[104](s1)" in section and "📌" in section
+    assert "[104](plain)" not in section
+    # 新上架排最前，其次 104 更新，最後仍在架
+    assert section.index("(n1)") < section.index("(r1)") < section.index("(s1)")
+
+
+def test_focus_section_shows_domain_labels():
+    scan = ScanResult(today="2026-05-13",
+                      new_items=[_job("m1", title="Forward Deployed PM",
+                                      jd="具身智能平台，整合 LLM 與 RAG")],
+                      refreshed=[], salary_changed=[], still_listed=[], expired=[])
+    md = build_markdown(scan, "2026-05-13")
+    section = md.split(_FOCUS_HEADER, 1)[1]
+    assert "🦾 Physical AI／🧠 LLM／🚀 FDE" in section
+
+
+def test_focus_section_sorted_by_priority_within_status():
+    low = _physical("low", ai_intent={"is_ai_pm": True, "has_ai": True, "score": 5.0,
+                                      "priority": 5.0, "tier": "moderate", "matched": []})
+    high = _physical("high", ai_intent={"is_ai_pm": True, "has_ai": True, "score": 9.0,
+                                        "priority": 9.0, "tier": "strong", "matched": []})
+    scan = ScanResult(today="2026-05-13", new_items=[], refreshed=[],
+                      salary_changed=[], still_listed=[low, high], expired=[])
+    md = build_markdown(scan, "2026-05-13")
+    section = md.split(_FOCUS_HEADER, 1)[1]
+    assert section.index("(high)") < section.index("(low)")
+
+
+def test_focus_section_absent_when_no_match():
+    scan = ScanResult(today="2026-05-13", new_items=[_job("u1")],
+                      refreshed=[], salary_changed=[], still_listed=[], expired=[])
+    md = build_markdown(scan, "2026-05-13")
+    assert _FOCUS_HEADER not in md
+
+
+def test_focus_summary_counts():
+    scan = ScanResult(today="2026-05-13",
+                      new_items=[_physical("n1"), _job("plain")],
+                      refreshed=[], salary_changed=[],
+                      still_listed=[_physical("s1"), _physical("s2")], expired=[])
+    md = build_markdown(scan, "2026-05-13")
+    summary = md.split("## 📊 摘要", 1)[1].split("\n## ", 1)[0]
+    assert "🎯 重點領域（Physical AI／LLM／FDE）：在架 **3** 筆，其中今日新上架 **1** 筆" in summary
+
+
+def test_main_table_title_tagged_with_domain_icon():
+    scan = ScanResult(today="2026-05-13", new_items=[_physical("n1"), _job("plain")],
+                      refreshed=[], salary_changed=[], still_listed=[], expired=[])
+    md = build_markdown(scan, "2026-05-13")
+    new_section = md.split("## 🆕 今日新上架", 1)[1]
+    row = next(l for l in new_section.splitlines() if "[104](n1)" in l)
+    plain = next(l for l in new_section.splitlines() if "[104](plain)" in l)
+    assert "| 🦾 Physical AI 產品經理 |" in row
+    assert "| AI PM |" in plain
+
+
+def test_subject_mentions_new_focus_count():
+    scan = ScanResult(today="2026-05-13", new_items=[_physical("n1"), _job("plain")],
+                      refreshed=[], salary_changed=[], still_listed=[_physical("s1")],
+                      expired=[])
+    assert "🎯 重點領域 1 筆" in build_subject(scan, "2026-05-13")
+
+
+def test_subject_omits_focus_when_no_new_focus():
+    scan = ScanResult(today="2026-05-13", new_items=[_job("plain")],
+                      refreshed=[], salary_changed=[], still_listed=[_physical("s1")],
+                      expired=[])
+    assert "重點領域" not in build_subject(scan, "2026-05-13")
