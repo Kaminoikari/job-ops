@@ -33,13 +33,13 @@ FOCUS_LABELS: dict[str, str] = {
     "fde": "🚀 FDE",
 }
 
-# 比對前從文字中拿掉的片語：字面含「機器人／robot」但不是實體機器人。
+# 比對前從文字中拿掉的片語：字面含「機器人」但不是實體機器人。英文的
+# robotic process automation 不用列：robot 系列詞走英數邊界比對，robotic 本來就不會命中。
 _NOT_PHYSICAL = (
     "聊天機器人",
     "對話機器人",
     "客服機器人",
     "機器人流程自動化",
-    "robotic process automation",
 )
 
 # Physical AI：職稱命中即標。

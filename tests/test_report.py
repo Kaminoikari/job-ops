@@ -237,3 +237,12 @@ def test_subject_omits_focus_when_no_new_focus():
                       refreshed=[], salary_changed=[], still_listed=[_physical("s1")],
                       expired=[])
     assert "重點領域" not in build_subject(scan, "2026-05-13")
+
+
+def test_focus_section_missing_url_shows_dash():
+    scan = ScanResult(today="2026-05-13", new_items=[_physical("")],
+                      refreshed=[], salary_changed=[], still_listed=[], expired=[])
+    md = build_markdown(scan, "2026-05-13")
+    section = md.split(_FOCUS_HEADER, 1)[1].split("\n## ", 1)[0]
+    assert "[104]()" not in section
+    assert "| — |" in section

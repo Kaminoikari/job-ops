@@ -4,6 +4,8 @@
 """
 from __future__ import annotations
 
+import pytest
+
 from job_ops.focus_domain import classify_focus_domains
 
 
@@ -39,7 +41,8 @@ def test_physical_jd_single_robot_mention_not_hit():
 
 
 def test_physical_jd_repeated_robot_terms_hit():
-    job = _job(jd="規劃機器人產品線，定義 AMR 規格，與機器人客戶訪談，追蹤機器人上市")
+    # 剛好 3 次（機器人 ×2＋AMR ×1）：門檻是「>= 3」
+    job = _job(jd="規劃機器人產品線，定義 AMR 規格，追蹤機器人上市")
     assert classify_focus_domains(job) == ["physical_ai"]
 
 
@@ -49,14 +52,15 @@ def test_physical_jd_two_robot_mentions_not_hit():
     assert classify_focus_domains(job) == []
 
 
-def test_chatbot_is_not_physical():
-    job = _job("AI 聊天機器人產品經理", jd="聊天機器人、聊天機器人、聊天機器人")
+def test_chatbot_title_is_not_physical():
+    assert "physical_ai" not in classify_focus_domains(_job("AI 聊天機器人產品經理"))
+
+
+@pytest.mark.parametrize("word", ["聊天機器人", "對話機器人", "客服機器人", "機器人流程自動化"])
+def test_software_robot_words_in_jd_are_not_physical(word):
+    # 每個詞各出現 3 次：沒拿掉的話「機器人」累計 3 次就會達門檻
+    job = _job(jd="、".join([word] * 3))
     assert "physical_ai" not in classify_focus_domains(job)
-
-
-def test_rpa_robot_is_not_physical():
-    job = _job(jd="導入機器人流程自動化，機器人流程自動化，robotic process automation")
-    assert classify_focus_domains(job) == []
 
 
 def test_physical_in_benefits_only_not_hit():
@@ -121,6 +125,12 @@ def test_fde_abbr_hit():
 
 def test_fde_onsite_hit():
     assert classify_focus_domains(_job(jd="需駐點客戶端，主導導入")) == ["fde"]
+
+
+def test_fde_onsite_second_occurrence_hit():
+    # 第一個「駐點」只是地點，第二個才在客戶旁；要檢查到每一個出現位置
+    job = _job(jd="工作地點：大直駐點。" + "。" * 30 + "專案期間需駐點客戶端")
+    assert classify_focus_domains(job) == ["fde"]
 
 
 def test_fde_onsite_customer_before_hit():
