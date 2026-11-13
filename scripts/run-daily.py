@@ -30,7 +30,13 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from job_ops.ai_intent import annotate_ai_intent, has_ai_signal
-from job_ops.config import drop_excluded, load_email_env, load_search_config, passes_filters
+from job_ops.config import (
+    drop_excluded,
+    is_excluded_employer,
+    load_email_env,
+    load_search_config,
+    passes_filters,
+)
 from job_ops.domain_filter import has_software_signal, passes_domain_gate
 from job_ops.email_sender import send_daily_email
 from job_ops.history import (
@@ -42,7 +48,7 @@ from job_ops.history import (
     merge_into_history,
     save_history,
 )
-from job_ops.report import build_markdown, build_subject, render_html
+from job_ops.report import build_markdown, build_subject, render_html, strip_pictographs
 from job_ops.scraper_104 import scrape_all, verify_listings_alive
 
 
@@ -171,6 +177,11 @@ def main() -> int:
         log.info("scrape complete: %d jobs (before filter)", len(raw_jobs))
 
         today_jobs = [j for j in raw_jobs if passes_filters(j, cfg.filters)]
+        # 只有 JD 認得出隸屬的雇主：歷史紀錄沒有 JD，靠今天爬到的 URL 擋住它的 missing 紀錄
+        excluded_urls = frozenset(
+            j["url"] for j in raw_jobs
+            if is_excluded_employer(j.get("company", "") or "", j.get("jd", "") or "", cfg.filters)
+        )
         log.info("after filter: %d jobs", len(today_jobs))
 
         # AI 意圖標記：在 compare 前標好，scan 各 list 沿用同批 dict 即帶有 ai_intent
@@ -183,7 +194,7 @@ def main() -> int:
         log.info("history records: %d", len(history))
         scan = compare(today_jobs, history, today=today)
         # 在 detail 驗證前排除：否則歷史裡同公司的職缺會被確認在架而列進日報
-        scan = drop_excluded(scan, cfg.filters)
+        scan = drop_excluded(scan, cfg.filters, excluded_urls)
 
         # 今天沒撈到的職缺先別當下架——逐筆向 104 detail 確認，避免「掉出掃描覆蓋窗」
         # 被誤標成 Expired（假下架）。只有 detail 回 404 才判真下架。
@@ -234,7 +245,7 @@ def main() -> int:
     env = load_email_env(ENV_PATH)
     result = send_daily_email(
         subject=build_subject(scan, today),
-        text=md,
+        text=strip_pictographs(md),
         html=html,
         sender=env.sender,
         app_password=env.app_password,

@@ -215,12 +215,27 @@ def test_card_fields():
       "activeness": "🟢 徵才行為活躍"}, "1 天內聯絡過求職者"),
     ({"resume_info": "—", "reply_info": "", "activeness": "🟢 徵才行為活躍"}, "徵才行為活躍"),
     ({}, "近期無招募動態"),
-], ids=["resume-first", "reply-second", "activeness-last", "none"])
+    # 取最近的一筆：聯絡比處理履歷新
+    ({"resume_info": "3 天內處理過履歷", "reply_info": "8 小時前聯絡過求職者"},
+     "8 小時前聯絡過求職者"),
+    # 同樣新時處理履歷優先
+    ({"resume_info": "1 天內處理過履歷", "reply_info": "24 小時前聯絡過求職者"},
+     "1 天內處理過履歷"),
+    # 讀不出時間的排在讀得出的後面
+    ({"resume_info": "近期處理過履歷", "reply_info": "3 天內聯絡過求職者"},
+     "3 天內聯絡過求職者"),
+    # 都讀不出時間：退回固定順序
+    ({"resume_info": "近期處理過履歷", "reply_info": "日前聯絡過求職者"}, "近期處理過履歷"),
+    ({"resume_info": "30 分鐘前處理過履歷", "reply_info": "1 小時前聯絡過求職者"},
+     "30 分鐘前處理過履歷"),
+], ids=["resume-first", "reply-second", "activeness-last", "none", "reply-more-recent",
+        "tie-resume-first", "unparsed-after-parsed", "all-unparsed-fixed-order", "minutes"])
 def test_activity_precedence(notes, expected):
     card = _section(render_html(_scan(new_items=[_job("https://x/a", notes=notes)]), _TODAY), "新上架")
     assert expected in card
-    for other in ("16 小時前處理過履歷", "1 天內聯絡過求職者", "徵才行為活躍", "近期無招募動態"):
-        if other != expected:
+    shown = [v for v in notes.values() if v] + ["近期無招募動態"]
+    for other in shown:
+        if other != expected and expected not in other:
             assert other not in card, other
 
 
@@ -269,9 +284,15 @@ def test_job_without_url_is_not_linked():
     ("", "—"),
     ("_宇見智能科技股份有限公司", "宇見智能科技"),
     ("___", "___"),
+    ("富邦媒體科技股份有限公司(富邦momo)", "富邦媒體科技(富邦momo)"),
+    ("經緯智庫股份有限公司 (MGR Consulting Co., Ltd.)", "經緯智庫 (MGR Consulting Co., Ltd.)"),
+    ("英屬開曼群島商鵬冠世邁科技股份有限公司台灣分公司", "鵬冠世邁科技"),
+    ("香港商華特迪士尼股份有限公司台灣分公司", "華特迪士尼"),
+    ("台商資訊股份有限公司", "台商資訊"),
 ], ids=["suffix", "suffix-ltd", "brand-paren-suffix", "brand-first", "origin-prefix",
         "space-before-underscore", "untouched", "only-suffix", "only-origin", "empty",
-        "leading-underscore", "only-underscores"])
+        "leading-underscore", "only-underscores", "suffix-before-paren", "suffix-before-english",
+        "attached-origin-and-branch", "hk-origin-and-branch", "tai-is-not-origin"])
 def test_display_company(raw, expected):
     assert _display_company(raw) == expected
 

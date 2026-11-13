@@ -157,6 +157,9 @@ def test_main_live_path_excludes_employer_from_report_and_verification(tmp_path,
         _HISTORY_HEADER
         + "https://www.104.com.tw/job/old\t2026-10-30\t2026-11-12\t2026/11/10\t"
           "創造智能科技股份有限公司\tAI應用規劃師\t面議\t\t台北市\t\tNew\t\t{}\n"
+        # 公司名不含排除詞，只有今天爬到的 JD 認得出隸屬：同樣不能被送去驗證
+        + "https://www.104.com.tw/job/badjd\t2026-10-30\t2026-11-12\t2026/11/10\t"
+          "某某新創\tAI 產品經理\t面議\t\t台北市\t\tNew\t\t{}\n"
         + "https://www.104.com.tw/job/keep\t2026-10-30\t2026-11-12\t2026/11/10\t"
           "宇見智能科技\t舊 PM 職缺\t面議\t\t台北市\t\tNew\t\t{}\n",
         encoding="utf-8",
@@ -217,3 +220,36 @@ def test_main_cached_path_excludes_employer(tmp_path, monkeypatch):
     html = _report_html(tmp_path)
     assert "job/good" in html
     assert "job/bad" not in html and "job/lns" not in html and "創造智能" not in html
+
+
+def test_main_email_only_sends_no_emoji_in_any_part(tmp_path, monkeypatch):
+    """使用者要求整封信不含圖示：HTML、主旨與 text/plain 段落都要檢查。"""
+    import re
+    run_daily = _load_run_daily()
+    _point_paths(run_daily, monkeypatch, tmp_path)
+    job = {"url": "https://www.104.com.tw/job/good", "title": "LLM 產品經理 ★",
+           "company": "宇見智能科技", "jd": "LLM 平台", "salary_min": None,
+           "notes": {"activeness": "🟢 徵才行為活躍"}}
+    (tmp_path / "last-scan.json").write_text(json.dumps({
+        "today": "2026-11-13", "today_jobs": [job],
+        "scan": {"new_items": [job], "refreshed": [], "salary_changed": [],
+                 "still_listed": [], "expired": [], "listed_not_scanned": []},
+    }, ensure_ascii=False), encoding="utf-8")
+    sent: dict = {}
+
+    def _fake_send(**kwargs):
+        sent.update(kwargs)
+        from job_ops.email_sender import SendResult
+        return SendResult(True)
+
+    monkeypatch.setattr(run_daily, "send_daily_email", _fake_send)
+    monkeypatch.setattr(run_daily, "load_email_env",
+                        lambda _p: type("E", (), {"sender": "s", "app_password": "p",
+                                                  "recipient": "r"})())
+    monkeypatch.setattr(sys, "argv", ["run-daily.py", "--email-only"])
+
+    assert run_daily.main() == 0
+    picto = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F]")
+    for part in ("subject", "text", "html"):
+        assert picto.findall(sent[part]) == [], part
+    assert "LLM 產品經理" in sent["text"]

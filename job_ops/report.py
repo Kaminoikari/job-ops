@@ -397,16 +397,28 @@ def _plain(value: object) -> str:
     return re.sub(r"\s{2,}", " ", _PICTO_RE.sub("", str(value or ""))).strip()
 
 
+def strip_pictographs(text: str) -> str:
+    """拿掉 emoji 與符號，給 email 的 text/plain 段落用（markdown 日報檔本身不動）。"""
+    return _PICTO_RE.sub("", text)
+
+
 def _e(value: object) -> str:
     return html_lib.escape(_plain(value))
 
 
-_CO_SUFFIX_RE = re.compile(r"(?:股份有限公司|有限公司|[(（]股[)）]公司)\s*$")
+_CO_SUFFIX_RE = re.compile(r"股份有限公司|有限公司|[(（]股[)）]公司")
 _CO_ORIGIN_RE = re.compile(r"^(?:[日美德英法韓港星荷瑞加澳陸台]商|外商)$")
+# 黏在名字前面的外商註冊地（「英屬開曼群島商○○」）。不含「台商」：台商資訊這類是公司名本身
+_CO_ATTACHED_ORIGIN_RE = re.compile(
+    r"^(?:英屬開曼群島|英屬維京群島|開曼群島|英屬|薩摩亞|塞席爾|香港|新加坡|美|日|德|英|法|韓|荷|瑞士|加拿大|澳|陸)商(?=.)"
+)
+_CO_BRANCH_RE = re.compile(r"台灣分公司$")
 
 
 def _display_company(name: str) -> str:
-    """104 公司名的顯示形：取「品牌_法人名」的品牌，去掉公司型態後綴與「日商」類前綴。
+    """104 公司名的顯示形：取「品牌_法人名」的品牌，去掉公司型態字樣、外商註冊地前綴
+    與「台灣分公司」。公司型態字樣常夾在中間（「富邦媒體科技股份有限公司(富邦momo)」），
+    所以不只看字尾。
 
     拆不出東西時（只剩後綴、只有前綴）原樣回傳：顯示錯位的名字比冗長的原名更誤導。
     """
@@ -418,18 +430,35 @@ def _display_company(name: str) -> str:
         parts = parts[1:]
     if not parts:
         return raw
-    brand = _CO_SUFFIX_RE.sub("", parts[0]).strip()
+    brand = _CO_ATTACHED_ORIGIN_RE.sub("", parts[0])
+    brand = _CO_BRANCH_RE.sub("", brand)
+    brand = _CO_SUFFIX_RE.sub("", brand).strip()
     return brand or raw
 
 
+_RECENCY_RE = re.compile(r"^(\d+)\s*(分鐘前|小時前|天內)")
+_RECENCY_HOURS = {"分鐘前": 1 / 60, "小時前": 1.0, "天內": 24.0}
+
+
+def _recency_hours(text: str) -> float | None:
+    """「8 小時前處理過履歷」→ 8；讀不出時間回 None（不猜）。"""
+    m = _RECENCY_RE.match(text)
+    if not m:
+        return None
+    return int(m.group(1)) * _RECENCY_HOURS[m.group(2)]
+
+
 def _activity(j: dict) -> str:
-    """招募動態：處理履歷 > 聯絡求職者 > 徵才積極度，取第一個有值的。"""
+    """招募動態：處理履歷與聯絡求職者取最近的一筆，同樣新時處理履歷優先；
+    讀不出時間的排在讀得出的後面。兩者都沒有才用徵才積極度。"""
     notes = j.get("notes") or {}
-    for key in ("resume_info", "reply_info", "activeness"):
-        text = _plain(notes.get(key))
-        if text and text != "—":
-            return text
-    return ""
+    texts = [t for t in (_plain(notes.get("resume_info")), _plain(notes.get("reply_info")))
+             if t and t != "—"]
+    if texts:
+        # sorted 是穩定排序：同分時維持 resume 在前
+        return sorted(texts, key=lambda t: (_recency_hours(t) is None, _recency_hours(t) or 0))[0]
+    activeness = _plain(notes.get("activeness"))
+    return activeness if activeness and activeness != "—" else ""
 
 
 def _salary_text(salary_min: int | None) -> str:

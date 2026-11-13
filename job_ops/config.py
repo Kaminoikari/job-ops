@@ -132,18 +132,23 @@ def is_excluded_employer(company: str, jd: str, cfg: FilterConfig) -> bool:
     return any(k and k in jd for k in cfg.exclude_jd_keywords)
 
 
-def drop_excluded(scan: ScanResult, cfg: FilterConfig) -> ScanResult:
+def drop_excluded(
+    scan: ScanResult, cfg: FilterConfig, excluded_urls: frozenset[str] = frozenset()
+) -> ScanResult:
     """把被排除雇主的職缺從 scan 的每一個清單拿掉。
 
     passes_filters 只管今天掃到的職缺；歷史裡已有的同公司職缺會以 missing 回來，
     驗證在架後落進「在架未掃到」。快取（--email-only／--dry-run）則是排除名單
-    加入前寫下的。兩條路都要在這裡再濾一次。Record 沒有 JD，只能比公司名。
+    加入前寫下的。兩條路都要在這裡再濾一次。
+
+    Record 沒有 JD，只能比公司名；公司名看不出隸屬、只有 JD 認得出的職缺，由呼叫端
+    把今天爬到時被 JD 擋下的 URL 傳進 excluded_urls。今天沒爬到的這類舊紀錄擋不住。
     """
     def keep_job(j: dict) -> bool:
         return not is_excluded_employer(j.get("company", "") or "", j.get("jd", "") or "", cfg)
 
     def keep_rec(r) -> bool:
-        return not is_excluded_employer(r.company or "", "", cfg)
+        return r.url not in excluded_urls and not is_excluded_employer(r.company or "", "", cfg)
 
     return replace(
         scan,
