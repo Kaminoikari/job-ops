@@ -1,10 +1,10 @@
 """Daily report: markdown + Gmail-safe inline-styled HTML."""
 from __future__ import annotations
 
+import html as html_lib
 import re
 from collections import defaultdict
-
-import markdown as md_lib
+from datetime import date
 
 from .focus_domain import FOCUS_ICONS, FOCUS_LABELS, classify_focus_domains
 from .history import ScanResult
@@ -356,34 +356,386 @@ def build_markdown(
     return "\n".join(lines) + "\n"
 
 
-# ---------- HTML 渲染（inline styles，相容 Gmail）----------
+# ---------- HTML 渲染：Wallet 版 email（table + inline style，相容 Gmail）----------
+#
+# 只靠字級、字重、色彩與留白建立層次，不放任何圖示或表情符號；來源資料裡的
+# emoji 與符號（104 的「🟢 徵才行為活躍」、職稱裡的「★」）一律在輸出前拿掉。
+# 深色模式由 <style> 的 prefers-color-scheme 覆寫（Apple Mail 支援；Gmail 會忽略，
+# 維持淺色）。
+
+_PICTO_RE = re.compile("[\U0001F000-\U0001FAFF☀-➿⬀-⯿️‍]")
+
+_C = {
+    "page": "#f2f2f7", "card": "#ffffff", "well": "#f5f5f7",
+    "ink": "#1d1d1f", "ink2": "#6e6e73", "ink3": "#86868b", "ink4": "#aeaeb2",
+    "hair": "#e5e5ea", "blue": "#0071e3", "live": "#248a3d",
+}
+_DOMAIN_NAME = {"physical_ai": "Physical AI", "llm": "LLM", "fde": "FDE"}
+_DOMAIN_COLOR = {"physical_ai": "#bf5a00", "llm": "#0071e3", "fde": "#8944ab"}
+_TIER_TEXT = {"strong": "AI 訊號強", "moderate": "AI 訊號中", "weak": "AI 訊號弱"}
+_WEEKDAY = "一二三四五六日"
+_FONT = ("-apple-system,BlinkMacSystemFont,'SF Pro Text','PingFang TC',"
+         "'Helvetica Neue','Noto Sans TC',sans-serif")
+
+_DARK_CSS = (
+    "@media (prefers-color-scheme: dark){"
+    ".jo-page{background:#000000!important}"
+    ".jo-card{background:#1c1c1e!important}"
+    ".jo-well{background:#2c2c2e!important}"
+    ".jo-ink{color:#f5f5f7!important}"
+    ".jo-ink2{color:#a1a1a6!important}"
+    ".jo-hair{border-color:#38383a!important}"
+    ".jo-list td{color:#a1a1a6!important;border-color:#38383a!important}"
+    ".jo-list a,.jo-list b{color:#f5f5f7!important}"
+    ".jo-list div{color:#a1a1a6!important}"
+    "}"
+)
 
 
-def render_html(md_text: str, today: str) -> str:
-    body = md_lib.markdown(md_text, extensions=["tables", "fenced_code"])
-    styled = (
-        body
-        .replace("<table>", '<table style="border-collapse:collapse;width:100%;font-size:13px;margin:8px 0">')
-        .replace("<th>", '<th style="border:1px solid #ddd;padding:6px 10px;background:#f5f5f5;text-align:left;font-weight:600">')
-        .replace("<td>", '<td style="border:1px solid #ddd;padding:6px 10px;vertical-align:top">')
-        .replace("<a ", '<a style="color:#2563eb;text-decoration:underline" ')
-        .replace("<h1>", '<h1 style="font-size:24px;margin:16px 0 8px">')
-        .replace("<h2>", '<h2 style="font-size:20px;margin:24px 0 10px;padding-bottom:4px;border-bottom:1px solid #eee">')
-        .replace("<h3>", '<h3 style="font-size:16px;margin:20px 0 8px;color:#0f172a">')
-        .replace("<h4>", '<h4 style="font-size:14px;margin:14px 0 6px;color:#374151">')
-        .replace("<li>", '<li style="margin:2px 0">')
-        .replace("<blockquote>", '<blockquote style="margin:8px 0;padding:8px 12px;border-left:3px solid #cbd5e1;background:#f8fafc;color:#475569">')
-        .replace("<hr>", '<hr style="border:none;border-top:1px solid #e2e8f0;margin:16px 0">')
-        .replace("<code>", '<code style="background:#f1f5f9;padding:1px 4px;border-radius:3px;font-size:13px">')
+def _plain(value: object) -> str:
+    """拿掉 emoji／符號並收斂空白；回傳未跳脫的純文字。"""
+    return re.sub(r"\s{2,}", " ", _PICTO_RE.sub("", str(value or ""))).strip()
+
+
+def _e(value: object) -> str:
+    return html_lib.escape(_plain(value))
+
+
+_CO_SUFFIX_RE = re.compile(r"(?:股份有限公司|有限公司|[(（]股[)）]公司)\s*$")
+_CO_ORIGIN_RE = re.compile(r"^(?:[日美德英法韓港星荷瑞加澳陸台]商|外商)$")
+
+
+def _display_company(name: str) -> str:
+    """104 公司名的顯示形：取「品牌_法人名」的品牌，去掉公司型態後綴與「日商」類前綴。
+
+    拆不出東西時（只剩後綴、只有前綴）原樣回傳：顯示錯位的名字比冗長的原名更誤導。
+    """
+    raw = _plain(name)
+    if not raw:
+        return "—"
+    parts = [p.strip() for p in raw.split("_") if p.strip()]
+    if parts and _CO_ORIGIN_RE.match(parts[0]):
+        parts = parts[1:]
+    if not parts:
+        return raw
+    brand = _CO_SUFFIX_RE.sub("", parts[0]).strip()
+    return brand or raw
+
+
+def _activity(j: dict) -> str:
+    """招募動態：處理履歷 > 聯絡求職者 > 徵才積極度，取第一個有值的。"""
+    notes = j.get("notes") or {}
+    for key in ("resume_info", "reply_info", "activeness"):
+        text = _plain(notes.get(key))
+        if text and text != "—":
+            return text
+    return ""
+
+
+def _salary_text(salary_min: int | None) -> str:
+    return "面議" if salary_min is None else f"{salary_min:,} 起"
+
+
+def _tier_text(j: dict) -> str:
+    return _TIER_TEXT.get((j.get("ai_intent") or {}).get("tier", ""), "")
+
+
+def _domain_html(keys: list[str], size: int = 12) -> str:
+    return "　".join(
+        f'<span style="color:{_DOMAIN_COLOR[k]};font-size:{size}px;font-weight:600">'
+        f'{_DOMAIN_NAME[k]}</span>'
+        for k in keys
     )
+
+
+def _title_html(j: dict, style: str) -> str:
+    title = _e(j.get("title")) or "—"
+    url = j.get("url") or ""
+    if not url:
+        return f'<div class="jo-ink" style="{style}">{title}</div>'
+    return (f'<a class="jo-ink" href="{html_lib.escape(url)}" '
+            f'style="{style};text-decoration:none;display:block">{title}</a>')
+
+
+def _table(inner: str, style: str = "", cls: str = "") -> str:
+    cls_attr = f' class="{cls}"' if cls else ""
+    return (f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+            f'border="0"{cls_attr} style="border-collapse:separate;{style}">{inner}</table>')
+
+
+def _card(inner: str, padding: str = "18px 20px") -> str:
+    return (
+        '<tr><td style="padding:0 0 10px">'
+        + _table(f'<tr><td style="padding:{padding}">{inner}</td></tr>',
+                 f"background:{_C['card']};border-radius:18px", "jo-card")
+        + "</td></tr>"
+    )
+
+
+def _section_head(title: str, count: int | None = None) -> str:
+    right = (f'<td align="right" style="font-size:14px;color:{_C["ink3"]}">{count} 個</td>'
+             if count is not None else "")
+    return (
+        f'<tr data-section="{title}"><td style="padding:30px 6px 12px">'
+        + _table(f'<tr><td class="jo-ink" style="font-size:22px;font-weight:700;'
+                 f'letter-spacing:-.4px;color:{_C["ink"]}">{title}</td>{right}</tr>')
+        + "</td></tr>"
+    )
+
+
+def _job_card(j: dict) -> str:
+    keys = classify_focus_domains(j)
+    left = (_domain_html(keys) if keys else
+            f'<span style="font-size:12px;color:{_C["ink3"]}">{_e(j.get("industry"))}</span>')
+    activity = _activity(j)
+    act_color = _C["live"] if activity else _C["ink4"]
+    salary = _salary_text(j.get("salary_min"))
+    salary = salary if salary == "面議" else f"月薪 {salary}"
+    inner = (
+        _table(f'<tr><td>{left}</td><td align="right" style="font-size:12px;'
+               f'color:{_C["ink3"]}">{_tier_text(j)}</td></tr>')
+        + _title_html(j, f"margin-top:8px;font-size:17px;font-weight:600;line-height:1.35;"
+                         f"color:{_C['ink']}")
+        + f'<div class="jo-ink2" style="margin-top:3px;font-size:14px;color:{_C["ink2"]}">'
+          f'{html_lib.escape(_display_company(j.get("company", "")))}</div>'
+        + _table(
+            f'<tr><td class="jo-ink2" style="padding:12px 0 0;font-size:13px;color:{_C["ink2"]}">'
+            f'{_e(j.get("location")) or "—"}　{salary}</td>'
+            f'<td align="right" style="padding:12px 0 0;font-size:13px;color:{act_color}">'
+            f'{html_lib.escape(activity or "近期無招募動態")}</td></tr>',
+            f"margin-top:16px;border-top:1px solid {_C['hair']}", "jo-hair")
+    )
+    return _card(inner, "18px 20px 14px")
+
+
+def _list_card(rows: list[tuple[str, str, str, str]]) -> str:
+    """分組清單：(上方小標 html, 職稱 html, 副標 html, 右欄 html)。
+
+    清單列是 email 體積的大宗（真實資料一天約 160 列），inline style 只留必要的；
+    深色模式改由 .jo-list 的後代選擇器覆寫，不在每個元素上掛 class。Gmail 超過
+    102KB 會剪掉信尾。
+    """
+    body = ""
+    for i, (label, title, sub, right) in enumerate(rows):
+        border = "" if i == 0 else f"border-top:1px solid {_C['hair']};"
+        label_html = f"{label}<br>" if label else ""
+        body += (
+            f'<tr><td style="{border}padding:13px 0 13px 16px">{label_html}{title}'
+            f'<div style="font-size:13px;color:{_C["ink2"]}">{sub}</div></td>'
+            f'<td align="right" valign="top" style="{border}padding:13px 16px;'
+            f'font-size:14px;color:{_C["ink2"]}">{right}</td></tr>'
+        )
+    return ('<tr><td style="padding:0 0 10px">'
+            + _table(body, f"background:{_C['card']};border-radius:18px", "jo-card jo-list")
+            + "</td></tr>")
+
+
+def _list_row(j: dict, right: str, with_domain: bool = False) -> tuple[str, str, str, str]:
+    keys = classify_focus_domains(j) if with_domain else []
+    title = _e(j.get("title")) or "—"
+    url = j.get("url") or ""
+    style = f"font-size:15px;font-weight:500;color:{_C['ink']}"
+    title_html = (f'<a href="{html_lib.escape(url)}" style="{style};text-decoration:none">{title}</a>'
+                  if url else f'<span style="{style}">{title}</span>')
+    sub = f'{html_lib.escape(_display_company(j.get("company", "")))}　{_e(j.get("location"))}'
+    return (_domain_html(keys, 11) if keys else "", title_html, sub, right)
+
+
+def _salary_right(j: dict) -> str:
+    sal = j.get("salary_min")
+    if sal is None:
+        return "面議"
+    return f'<b style="color:{_C["ink"]}">{sal:,} 起</b>'
+
+
+def _featured(scan: ScanResult) -> dict | None:
+    """今日焦點：今天新上架、屬於重點領域者之中 priority 最高的一筆。"""
+    cands = [j for j in scan.new_items if classify_focus_domains(j)]
+    if not cands:
+        return None
+    return max(cands, key=_ai_score)
+
+
+def _featured_card(j: dict) -> str:
+    keys = classify_focus_domains(j)
+    names = "／".join(_DOMAIN_NAME[k] for k in keys)
+    activity = _activity(j)
+    reason = f"今天新上架的 {names} 職缺。" + (f"招募動態：{activity}。" if activity else "")
+    facts = [
+        (_e(j.get("location")) or "—", "地區"),
+        (_salary_text(j.get("salary_min")), "月薪"),
+        (_domain_html(keys, 15), "領域"),
+        (_tier_text(j).replace("AI 訊號", "") or "—", "AI 訊號"),
+    ]
+    # 2×2：手機寬度下四欄並排會把「台北市信義區」「60,000 起」折成兩行
+    cells = [
+        f'<td width="50%" valign="top" style="padding:14px 16px">'
+        f'<div class="jo-ink" style="font-size:15px;font-weight:600;color:{_C["ink"]}">{v}</div>'
+        f'<div style="margin-top:2px;font-size:12px;color:{_C["ink3"]}">{k}</div></td>'
+        for v, k in facts
+    ]
+    fact_cells = f"{cells[0]}{cells[1]}</tr><tr>{cells[2]}{cells[3]}"
+    url = j.get("url") or ""
+    button = (
+        f'<a href="{html_lib.escape(url)}" style="display:inline-block;background:{_C["blue"]};'
+        f'color:#ffffff;font-size:15px;font-weight:500;padding:11px 24px;border-radius:980px;'
+        f'text-decoration:none">在 104 查看</a>' if url else ""
+    )
+    inner = (
+        f'<div style="font-size:12px;font-weight:600;letter-spacing:1px;color:{_C["ink3"]}">今日焦點</div>'
+        + _title_html(j, f"margin-top:12px;font-size:24px;font-weight:700;line-height:1.25;"
+                         f"letter-spacing:-.4px;color:{_C['ink']}")
+        + f'<div class="jo-ink2" style="margin-top:6px;font-size:15px;color:{_C["ink2"]}">'
+          f'{html_lib.escape(_display_company(j.get("company", "")))}</div>'
+        + f'<div class="jo-ink" style="margin:16px 0 18px;font-size:15px;line-height:1.55;'
+          f'color:{_C["ink"]}">{html_lib.escape(reason)}</div>'
+        + _table(f"<tr>{fact_cells}</tr>",
+                 f"background:{_C['well']};border-radius:14px;margin-bottom:20px", "jo-well")
+        + button
+    )
+    return (f'<tr data-section="今日焦點"><td style="padding:0">'
+            + _table(_card(inner, "24px 22px 24px")) + "</td></tr>")
+
+
+def _summary(scan: ScanResult) -> str:
+    focus = _focus_rows(scan)
+    n_ai = sum(1 for j in scan.new_items if _is_ai_pm(j))
+
+    def stat(key: str, value: int) -> str:
+        return f'<span data-stat="{key}">{value}</span>'
+
+    side = "<br>".join(
+        f'{label}　<b class="jo-ink" style="color:{_C["ink"]}">{stat(key, value)}</b>'
+        for label, key, value in (
+            ("強訊號 AI PM", "ai_pm", n_ai),
+            ("104 更新", "refreshed", len(scan.refreshed)),
+            ("今日掃描", "total", scan.total_today()),
+        )
+    )
+    dom_cells = "".join(
+        f'<td width="33%" valign="top" class="jo-hair" style="padding:16px 0 0;'
+        f'border-top:1px solid {_C["hair"]}">'
+        f'<div style="font-size:26px;font-weight:600;letter-spacing:-.5px;color:{_DOMAIN_COLOR[k]}">'
+        f'{stat(k, sum(1 for _, keys, _j in focus if k in keys))}</div>'
+        f'<div style="font-size:12px;color:{_C["ink3"]}">{_DOMAIN_NAME[k]} 在架</div></td>'
+        for k in ("llm", "physical_ai", "fde")
+    )
+    inner = (
+        _table(
+            f'<tr><td valign="bottom" style="padding-bottom:20px">'
+            f'<div class="jo-ink" style="font-size:64px;font-weight:700;line-height:1;'
+            f'letter-spacing:-2.5px;color:{_C["ink"]}">{stat("new", len(scan.new_items))}</div>'
+            f'<div class="jo-ink2" style="margin-top:8px;font-size:15px;color:{_C["ink2"]}">個新上架職缺</div></td>'
+            f'<td align="right" valign="bottom" class="jo-ink2" style="padding-bottom:20px;font-size:14px;'
+            f'line-height:1.9;color:{_C["ink2"]}">{side}</td></tr>')
+        + _table(f"<tr>{dom_cells}</tr>")
+    )
+    return (f'<tr data-section="摘要"><td style="padding:0">'
+            + _table(_card(inner, "24px 22px 20px")) + "</td></tr>")
+
+
+def render_html(scan: ScanResult, today: str, *, full: bool = False) -> str:
+    """Wallet 版日報 email。區塊：摘要 → 今日焦點 → 新上架 → 重點領域今日更新 →
+    重點領域仍在架 → 薪資變動 → 104 更新（非重點領域）→ 在架未掃到 →（full）全部在架。
+
+    非重點領域的仍在架職缺不逐筆列出（數量大且無變化），full 模式才列。
+    """
+    d = date.fromisoformat(today)
+    date_text = f"{d.month} 月 {d.day} 日 星期{_WEEKDAY[d.weekday()]}"
+    featured = _featured(scan)
+    rows: list[str] = []
+
+    rows.append(
+        f'<tr><td style="padding:0 6px 22px">'
+        f'<div style="font-size:13px;font-weight:600;color:{_C["ink3"]}">{date_text}</div>'
+        f'<div class="jo-ink" style="margin-top:2px;font-size:32px;font-weight:700;letter-spacing:-.8px;'
+        f'color:{_C["ink"]}">今日職缺</div></td></tr>'
+    )
+    rows.append(_summary(scan))
+    if featured is not None:
+        rows.append('<tr><td style="height:20px;line-height:20px;font-size:0">&nbsp;</td></tr>')
+        rows.append(_featured_card(featured))
+
+    # 新上架：排序同 markdown 日報（有薪資者依 priority、月薪；面議者依 priority）
+    paid = sorted((j for j in scan.new_items if j.get("salary_min") is not None),
+                  key=lambda j: (-_ai_score(j), -(j.get("salary_min") or 0)))
+    negotiable = sorted((j for j in scan.new_items if j.get("salary_min") is None),
+                        key=lambda j: -_ai_score(j))
+    new_jobs = [j for j in paid + negotiable if j is not featured]
+    rows.append(_section_head("新上架", len(new_jobs)))
+    if new_jobs:
+        rows.extend(_job_card(j) for j in new_jobs)
+    else:
+        rows.append(_card(f'<div style="font-size:15px;color:{_C["ink3"]}">'
+                          + ("今日無其他新上架職缺" if featured is not None else "今日無新上架職缺")
+                          + "</div>"))
+
+    by_priority = lambda js: sorted(js, key=lambda j: -_ai_score(j))  # noqa: E731
+    focus_refreshed = by_priority(j for j in scan.refreshed if classify_focus_domains(j))
+    if focus_refreshed:
+        rows.append(_section_head("重點領域今日更新", len(focus_refreshed)))
+        rows.append(_list_card([_list_row(j, _salary_right(j), True) for j in focus_refreshed]))
+
+    focus_still = by_priority(j for j in scan.still_listed if classify_focus_domains(j))
+    if focus_still:
+        rows.append(_section_head("重點領域仍在架", len(focus_still)))
+        rows.append(_list_card([_list_row(j, _salary_right(j), True) for j in focus_still]))
+
+    if scan.salary_changed:
+        rows.append(_section_head("薪資變動", len(scan.salary_changed)))
+        rows.append(_list_card([
+            _list_row(j, f"{_salary_text(j.get('prev_salary_min'))} 改為 "
+                         f"{_salary_text(j.get('salary_min'))}")
+            for j in scan.salary_changed
+        ]))
+
+    plain_refreshed = sorted(
+        (j for j in scan.refreshed if not classify_focus_domains(j)),
+        key=lambda j: (_ai_score(j), j.get("104_update_date", "")), reverse=True,
+    )
+    if plain_refreshed:
+        rows.append(_section_head("104 更新", len(plain_refreshed)))
+        rows.append(_list_card([_list_row(j, _salary_right(j)) for j in plain_refreshed]))
+
+    if scan.listed_not_scanned:
+        rows.append(_section_head("在架未掃到", len(scan.listed_not_scanned)))
+        rows.append(_list_card([
+            _list_row({"url": r.url, "title": r.title, "company": r.company,
+                       "location": r.location}, _e(r.last_104_update) or "—")
+            for r in scan.listed_not_scanned
+        ]))
+
+    if full:
+        active = sorted(scan.new_items + scan.refreshed + scan.still_listed,
+                        key=lambda j: j.get("104_update_date", ""), reverse=True)
+        if active:
+            rows.append(_section_head("全部在架", len(active)))
+            rows.append(_list_card([_list_row(j, _e(j.get("104_update_date")) or "—", True)
+                                    for j in active]))
+
+    rows.append(
+        f'<tr><td style="padding:24px 6px 8px;font-size:12px;line-height:1.6;color:{_C["ink3"]}">'
+        "job-ops 每日寄送。所有職缺皆通過 AI 或軟體／SaaS 領域門檻，月薪為 104 標示的下限。"
+        "</td></tr>"
+    )
+
+    n_new = len(scan.new_items)
+    preheader = f"{n_new} 個新上架職缺，重點領域在架 {len(_focus_rows(scan))} 個"
     return (
         '<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8">'
-        f'<title>104 AI 職缺日報 · {today}</title></head>'
-        '<body style="font-family:-apple-system,BlinkMacSystemFont,\'PingFang TC\','
-        '\'Noto Sans TC\',\'Helvetica Neue\',sans-serif;font-size:15px;line-height:1.6;'
-        'color:#1a1a1a;background:#fff;max-width:900px;margin:0 auto;padding:24px">'
-        f'{styled}'
-        '</body></html>'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<meta name="color-scheme" content="light dark">'
+        '<meta name="supported-color-schemes" content="light dark">'
+        f"<title>職缺日報 {today}</title><style>{_DARK_CSS}</style></head>"
+        f'<body class="jo-page" style="margin:0;padding:0;background:{_C["page"]};'
+        f'font-family:{_FONT};-webkit-font-smoothing:antialiased">'
+        f'<div style="display:none;max-height:0;overflow:hidden;opacity:0">{html_lib.escape(preheader)}</div>'
+        + _table(
+            '<tr><td align="center" style="padding:32px 12px 40px">'
+            + _table("".join(rows), "max-width:600px;margin:0 auto")
+            + "</td></tr>",
+            f"background:{_C['page']}", "jo-page")
+        + "</body></html>"
     )
 
 
@@ -391,7 +743,7 @@ def build_subject(scan: ScanResult, today: str) -> str:
     parts = [f"{len(scan.new_items)} 筆新上架"]
     new_focus = _count_new_focus(scan)
     if new_focus:
-        parts.append(f"🎯 重點領域 {new_focus} 筆")
+        parts.append(f"重點領域 {new_focus} 筆")
     if scan.refreshed:
         parts.append(f"{len(scan.refreshed)} 筆 104 更新")
     if scan.salary_changed:

@@ -229,7 +229,7 @@ def test_subject_mentions_new_focus_count():
     scan = ScanResult(today="2026-05-13", new_items=[_physical("n1"), _job("plain")],
                       refreshed=[], salary_changed=[], still_listed=[_physical("s1")],
                       expired=[])
-    assert "🎯 重點領域 1 筆" in build_subject(scan, "2026-05-13")
+    assert "重點領域 1 筆" in build_subject(scan, "2026-05-13")
 
 
 def test_subject_omits_focus_when_no_new_focus():

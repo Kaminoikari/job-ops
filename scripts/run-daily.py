@@ -218,7 +218,7 @@ def main() -> int:
 
     log.info("=== Phase 4: 產出報告 ===")
     md = build_markdown(scan, today, full=args.full)
-    html = render_html(md, today)
+    html = render_html(scan, today, full=args.full)
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     md_path = REPORT_DIR / f"{today}.md"
     html_path = REPORT_DIR / f"{today}.html"
