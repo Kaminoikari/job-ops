@@ -1,6 +1,8 @@
 """ai_intent 加權啟發式分類器測試。"""
 import json
 
+import pytest
+
 from job_ops.ai_intent import annotate_ai_intent, classify_ai_intent
 
 
@@ -267,3 +269,14 @@ def test_plain_mechanical_robot_jd_still_not_ai():
     r = classify_ai_intent(_jd("負責機械手臂組裝、產線維護與機構設計"))
     assert r.has_ai is False
     assert r.is_ai_pm is False
+
+
+@pytest.mark.parametrize("title", [
+    "Head of Product", "VP of Product", "Product Director", "Director of Product",
+    "產品副總", "產品處長",
+])
+def test_product_leadership_titles_get_role_boost(title):
+    """產品主管職與產品總監同列高權重角色：同一份 JD，主管職的 score 要高於一般 PM。"""
+    jd = "規劃 LLM 產品"
+    base = classify_ai_intent({"title": "產品經理", "jd": jd}).score
+    assert classify_ai_intent({"title": title, "jd": jd}).score > base

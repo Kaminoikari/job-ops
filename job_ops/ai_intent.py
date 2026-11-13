@@ -137,6 +137,12 @@ ROLE_SIGNALS: dict[str, float] = {
     "產品長": 4.0,
     "chief product officer": 4.0,
     "product builder": 4.0,
+    "head of product": 4.0,
+    "vp of product": 4.0,
+    "product director": 4.0,
+    "director of product": 4.0,
+    "產品副總": 4.0,
+    "產品處長": 4.0,
 }
 
 # SUPPLY_CHAIN：AI 供應鏈 / 硬體「優先」訊號（gpu、算力 等）。只用來加分排序，
@@ -257,6 +263,11 @@ def phrase_present(text: str, phrase: str) -> bool:
     "app" 命中 happening），所以任何詞庫都必須走這裡而不是 `in`。
     """
     return _phrase_present(text, phrase)
+
+
+def phrase_count(text: str, phrase: str) -> int:
+    """phrase 在 text 中出現幾次，邊界規則與 phrase_present 相同。"""
+    return sum(1 for _ in _iter_positions(text, phrase))
 
 
 def _has_verb_nearby(text: str, phrase: str) -> bool:

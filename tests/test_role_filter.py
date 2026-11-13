@@ -188,6 +188,22 @@ PRODUCT_LEADERSHIP_TITLES = [
     "產品總監 Product Director",
     "產品長 CPO",
     "Chief Product Officer",
+    "Head of Product",
+    "Head of Product, AI Platform",
+    "Head of Products",
+    "VP, Product",
+    "SVP of Product",
+    "EVP, Product",
+    "AVP of Product",
+    "VP of Product",
+    "VP Product",
+    "Vice President of Product",
+    "Director of Product",
+    "Product Director, Robotics",
+    "產品副總",
+    "產品處長",
+    "產品部主管",
+    "AI 產品主管",
 ]
 
 TERSE_LEADERSHIP_JD = "帶領產品團隊，負責公司整體產品方向與跨部門協作，向 CEO 匯報。"
@@ -202,6 +218,16 @@ def test_product_leadership_titles_survive_jd_stage(title):
 def test_product_leadership_whitelist_does_not_swallow_unrelated_long_term_wording():
     """「產品長期…」內含「產品長」三字，不可因此拿到白名單豁免而繞過黑名單。"""
     assert is_target_role("產品長期供應合約業務專員") is False
+
+
+@pytest.mark.parametrize("title", [
+    "Head of Product Marketing",
+    "VP of Product Marketing",
+    "Director of Product Marketing",
+])
+def test_product_leadership_whitelist_does_not_rescue_product_marketing(title):
+    """Product Marketing 是行銷職；不可因為含「Head of Product」就繞過 marketing 黑名單。"""
+    assert is_target_role(title) is False
 
 
 # ---------- PM 縮寫邊界：中文字 / 底線旁的 PM 也要命中 ----------
@@ -260,3 +286,28 @@ def test_ambiguous_title_with_empty_jd_kept_conservatively():
 def test_blacklisted_title_still_cut_regardless_of_jd():
     # title 黑名單命中 → JD 再像 PM 也不豁免（第一階段已剔，此為防呆）
     assert confirm_target_role("資深動態特效", "負責產品規劃與 roadmap") is False
+
+
+@pytest.mark.parametrize("title", [
+    "Head of Production",
+    "Head of Productivity Tools",
+    "Product Directory Admin",
+])
+def test_product_leadership_whitelist_needs_word_boundary(title):
+    """Production／Productivity／Directory 內含 product／director 字樣，不可拿到白名單豁免；
+    用 JD 階段觀察：未豁免的模糊職稱配上無 PM 訊號的 JD 會被剔除。"""
+    assert confirm_target_role(title, TERSE_LEADERSHIP_JD) is False
+
+
+@pytest.mark.parametrize("title", [
+    "Head of Product Engineering",
+    "Director, Product Engineering",
+    "VP of Product Sales",
+    "MVP Product Engineer",
+    # 右側 lookahead 放行中文，所以這一筆只靠 vp 前的字邊界擋下
+    "MVP Product 業務專員",
+])
+def test_product_leadership_whitelist_does_not_rescue_other_functions(title):
+    """Product 後面再接一個職能字（engineering／sales…）就不是產品主管職，
+    不可靠白名單繞過工程職與非 PM 黑名單；vp 前也要有字邊界（MVP 不算 VP）。"""
+    assert is_target_role(title) is False
