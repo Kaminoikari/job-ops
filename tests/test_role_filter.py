@@ -301,6 +301,8 @@ def test_product_leadership_whitelist_needs_word_boundary(title):
     "Director, Product Engineering",
     "VP of Product Sales",
     "MVP Product Engineer",
+    # 右側 lookahead 放行中文，所以這一筆只靠 vp 前的字邊界擋下
+    "MVP Product 業務專員",
 ])
 def test_product_leadership_whitelist_does_not_rescue_other_functions(title):
     """Product 後面再接一個職能字（engineering／sales…）就不是產品主管職，
