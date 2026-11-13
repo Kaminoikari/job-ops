@@ -56,7 +56,8 @@ def test_chatbot_title_is_not_physical():
     assert "physical_ai" not in classify_focus_domains(_job("AI 聊天機器人產品經理"))
 
 
-@pytest.mark.parametrize("word", ["聊天機器人", "對話機器人", "客服機器人", "機器人流程自動化"])
+@pytest.mark.parametrize("word", ["聊天機器人", "對話機器人", "客服機器人", "機器人流程自動化"],
+                         ids=["chatbot", "dialog", "service", "rpa"])
 def test_software_robot_words_in_jd_are_not_physical(word):
     # 每個詞各出現 3 次：沒拿掉的話「機器人」累計 3 次就會達門檻
     job = _job(jd="、".join([word] * 3))
