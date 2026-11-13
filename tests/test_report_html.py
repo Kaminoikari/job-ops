@@ -267,7 +267,71 @@ def test_job_without_url_is_not_linked():
     ("股份有限公司", "股份有限公司"),
     ("日商_", "日商_"),
     ("", "—"),
+    ("_宇見智能科技股份有限公司", "宇見智能科技"),
+    ("___", "___"),
 ], ids=["suffix", "suffix-ltd", "brand-paren-suffix", "brand-first", "origin-prefix",
-        "space-before-underscore", "untouched", "only-suffix", "only-origin", "empty"])
+        "space-before-underscore", "untouched", "only-suffix", "only-origin", "empty",
+        "leading-underscore", "only-underscores"])
 def test_display_company(raw, expected):
     assert _display_company(raw) == expected
+
+
+# ---------- 補強：卡片細節與排序 ----------
+
+
+def test_new_card_label_is_domain_for_focus_and_industry_otherwise():
+    first = _llm("https://x/f1", priority=9.0)  # 進焦點區
+    second = _llm("https://x/f2", priority=5.0, industry="網際網路相關業")
+    plain = _job("https://x/p", industry="電腦軟體服務業")
+    new = _section(render_html(_scan(new_items=[first, second, plain]), _TODAY), "新上架")
+    second_card = new[new.index("https://x/f2") - 600: new.index("https://x/f2")]
+    assert ">LLM<" in second_card and "網際網路相關業" not in second_card
+    assert "電腦軟體服務業" in new
+
+
+def test_activity_color_live_or_idle():
+    busy = _job("https://x/b", notes={"reply_info": "2 天內聯絡過求職者"})
+    idle = _job("https://x/i", ai_intent={"tier": "weak", "score": 1.0, "priority": 1.0})
+    new = _section(render_html(_scan(new_items=[busy, idle]), _TODAY), "新上架")
+    assert 'color:#248a3d">2 天內聯絡過求職者' in new
+    assert 'color:#aeaeb2">近期無招募動態' in new
+
+
+def test_negotiable_card_does_not_say_monthly():
+    new = _section(render_html(_scan(new_items=[_job("https://x/n")]), _TODAY), "新上架")
+    assert "面議" in new and "月薪 面議" not in new
+
+
+def test_list_row_without_url_is_not_linked():
+    html = render_html(_scan(refreshed=[_job("", title="無連結更新職缺")]), _TODAY)
+    sec = _section(html, "104 更新")
+    assert "無連結更新職缺" in sec and 'href=""' not in sec
+
+
+def test_featured_without_activity_or_url():
+    job = _llm("", notes={})
+    featured = _section(render_html(_scan(new_items=[job]), _TODAY), "今日焦點")
+    assert "今天新上架的 LLM 職缺。" in featured
+    assert "招募動態" not in featured
+    assert 'href=""' not in featured and "在 104 查看" not in featured
+
+
+def test_only_featured_new_job_says_no_other():
+    new = _section(render_html(_scan(new_items=[_llm("https://x/f")]), _TODAY), "新上架")
+    assert "今日無其他新上架職缺" in new
+
+
+def test_paid_listed_before_negotiable_then_priority_then_salary():
+    neg = _job("https://x/neg", salary_min=None,
+               ai_intent={"tier": "strong", "score": 9.0, "priority": 9.5})
+    a = _job("https://x/a", salary_min=50000, ai_intent={"tier": "strong", "priority": 9.0})
+    b = _job("https://x/b", salary_min=90000, ai_intent={"tier": "weak", "priority": 1.0})
+    c = _job("https://x/c", salary_min=70000, ai_intent={"tier": "strong", "priority": 9.0})
+    new = _section(render_html(_scan(new_items=[neg, a, b, c]), _TODAY), "新上架")
+    order = sorted(["neg", "a", "b", "c"], key=lambda k: new.index(f"https://x/{k}"))
+    assert order == ["c", "a", "b", "neg"]
+
+
+def test_full_mode_without_active_jobs_has_no_all_section():
+    html = render_html(_scan(listed_not_scanned=[_rec("https://x/l")]), _TODAY, full=True)
+    assert 'data-section="全部在架"' not in html
